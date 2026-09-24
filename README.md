@@ -8,7 +8,7 @@ Projeto da A3 de Banco de Dados – Universidade Anhembi Morumbi.
 
 ```
 create-it/
-├── database/   scripts SQL (PostgreSQL 16)
+├── database/   scripts SQL (PostgreSQL 16 / Supabase)
 │   ├── 01_schema.sql      tabelas, constraints, índices, trigger, função de resgate e views
 │   ├── 02_seed.sql        dados de teste
 │   └── 03_seguranca.sql   perfis de acesso (GRANT/REVOKE)
@@ -18,30 +18,37 @@ create-it/
 
 ## Como rodar
 
-Precisa de **Node.js 20+** e **PostgreSQL 16**.
+Precisa de **Node.js 20+** e de um projeto no **Supabase** (plano gratuito serve).
 
-### 1. Banco de dados
+### 1. Banco de dados no Supabase
 
-```bash
-# cria o usuário e o banco (uma vez só)
-psql -U postgres -c "CREATE USER createit WITH PASSWORD 'createit';"
-psql -U postgres -c "CREATE DATABASE createit OWNER createit;"
+1. Crie um projeto em [supabase.com](https://supabase.com) e anote a senha do banco.
+2. Abra o **SQL Editor** e rode os scripts, um de cada vez, nesta ordem:
+   - `database/01_schema.sql`: cria as tabelas, o trigger, a função de resgate e as views
+   - `database/02_seed.sql`: coloca os dados de teste
+   - `database/03_seguranca.sql`: cria os perfis de acesso. **Antes de rodar, troque as senhas** de `app_createit` e `relatorio_createit`.
+3. Em **Project Settings > Database > Connection string**, copie a URI do **Session pooler**.
 
-# cria as tabelas e coloca os dados de teste
-psql -U createit -d createit -f database/01_schema.sql
-psql -U createit -d createit -f database/02_seed.sql
-```
-
-O `03_seguranca.sql` é opcional no desenvolvimento e roda com o usuário `postgres`.
+As tabelas ficam no schema `createit`, e não no `public`. Isso é de propósito: o Supabase expõe o `public` na API REST dele, e aqui a API é o nosso back-end. O `03_seguranca.sql` ainda tira qualquer acesso dos papéis `anon` e `authenticated` do Supabase ao schema.
 
 ### 2. Back-end
 
 ```bash
 cd backend
-cp .env.example .env     # ajuste a DATABASE_URL se precisar
+cp .env.example .env
 npm install
 npm run dev              # API em http://localhost:3333
 ```
+
+No `.env`, cole a URI do Session pooler trocando o usuário `postgres` por `app_createit` e a senha pela que você definiu no `03_seguranca.sql`:
+
+```
+DATABASE_URL=postgresql://app_createit.<id-do-projeto>:<senha>@aws-0-sa-east-1.pooler.supabase.com:5432/postgres
+```
+
+A API conecta com esse usuário, que só pode ler e gravar dados (não consegue apagar tabelas, mexer nas categorias nem apagar resgates).
+
+> Se o pooler recusar o usuário `app_createit`, dá para conectar com o `postgres` mesmo: rode `ALTER ROLE postgres SET search_path = createit, public, extensions;` no SQL Editor e use a URI original.
 
 ### 3. Front-end
 
@@ -53,6 +60,10 @@ npm run dev              # app em http://localhost:5173
 
 Entre com **demo@createit.com** e a senha **create123** (todos os usuários de teste usam essa senha).
 
+### Rodando com Postgres local (opcional)
+
+Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um banco `createit`, rode os três scripts com o usuário `postgres` e use `DATABASE_URL=postgres://app_createit:<senha>@localhost:5432/createit`.
+
 ## Onde os conceitos de banco aparecem
 
 | Conceito | Onde |
@@ -63,7 +74,8 @@ Entre com **demo@createit.com** e a senha **create123** (todos os usuários de t
 | Transação | `fn_resgatar`: trava saldo e estoque (`FOR UPDATE`), debita, baixa estoque e gera o voucher de uma vez |
 | Views | `vw_feed`, `vw_ranking`, `vw_impacto_categoria` |
 | Índices | feed por usuário/data, curtidas, comentários, ranking por pontos |
-| Segurança | papéis `papel_app`, `papel_relatorio`, `papel_admin` com GRANT/REVOKE; senhas com bcrypt |
+| Segurança | papéis `papel_app`, `papel_relatorio`, `papel_admin` com GRANT/REVOKE; API conecta com usuário restrito; senhas com bcrypt |
+| Hospedagem | Supabase (PostgreSQL gerenciado, com backup diário automático) |
 
 ## Rotas da API
 
@@ -92,4 +104,3 @@ Entre com **demo@createit.com** e a senha **create123** (todos os usuários de t
 - Validação das ações por moderador (hoje é automática)
 - Comentários na tela (a API já tem)
 - Editar perfil
-"# Createit" 

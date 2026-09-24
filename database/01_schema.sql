@@ -1,6 +1,10 @@
 -- =====================================================================
 -- Create It - Script de criação do banco (PostgreSQL 16)
 -- A3 Banco de Dados - Universidade Anhembi Morumbi
+--
+-- Funciona no Supabase (cole no SQL Editor e clique em Run) e em Postgres local.
+-- As tabelas ficam no schema "createit", separado do "public" que o Supabase
+-- expõe automaticamente na API REST. Assim senha, CPF e e-mail não vazam.
 -- =====================================================================
 
 DROP SCHEMA IF EXISTS createit CASCADE;
