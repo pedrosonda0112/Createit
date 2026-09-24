@@ -12,7 +12,8 @@ create-it/
 │   ├── 01_schema.sql      tabelas, constraints, índices, trigger, função de resgate e views
 │   ├── 02_seed.sql        dados de teste
 │   ├── 03_seguranca.sql   perfis de acesso (GRANT/REVOKE)
-│   └── 04_storage.sql     bucket de fotos no Supabase Storage
+│   ├── 04_storage.sql     bucket de fotos no Supabase Storage
+│   └── 05_apagar_postagem.sql  trigger que estorna pontos e conquistas ao apagar uma postagem
 ├── backend/    API em Node.js + Express
 └── frontend/   app web em React + Vite
 ```
@@ -29,6 +30,7 @@ Precisa de **Node.js 20+** e de um projeto no **Supabase** (plano gratuito serve
    - `database/02_seed.sql`: coloca os dados de teste
    - `database/03_seguranca.sql`: cria os perfis de acesso. **Antes de rodar, troque as senhas** de `app_createit` e `relatorio_createit`.
    - `database/04_storage.sql`: cria o bucket `fotos` no Supabase Storage (fotos das ações)
+   - `database/05_apagar_postagem.sql`: trigger que desfaz pontos e conquistas quando uma postagem é apagada. Não apaga dados, então dá para rodar num banco que já está em uso.
 3. Em **Project Settings > Database > Connection string**, copie a URI do **Session pooler**.
 
 As tabelas ficam no schema `createit`, e não no `public`. Isso é de propósito: o Supabase expõe o `public` na API REST dele, e aqui a API é o nosso back-end. O `03_seguranca.sql` ainda tira qualquer acesso dos papéis `anon` e `authenticated` do Supabase ao schema.
@@ -66,7 +68,7 @@ Entre com **demo@createit.com** e a senha **create123** (todos os usuários de t
 
 ### Rodando com Postgres local (opcional)
 
-Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um banco `createit`, rode os scripts 01, 02 e 03 com o usuário `postgres` (o 04 é só do Supabase) e use `DATABASE_URL=postgres://app_createit:<senha>@localhost:5432/createit`.
+Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um banco `createit`, rode os scripts 01, 02, 03 e 05 com o usuário `postgres` (o 04 é só do Supabase) e use `DATABASE_URL=postgres://app_createit:<senha>@localhost:5432/createit`.
 
 ## Onde os conceitos de banco aparecem
 
@@ -74,7 +76,7 @@ Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um ban
 |---|---|
 | Integridade referencial | FKs com `ON DELETE CASCADE / SET NULL` em todas as tabelas |
 | Constraints | `CHECK` de saldo nunca negativo, status válidos, datas do desafio, ninguém segue a si mesmo |
-| Trigger | `trg_creditar_pontos`: ao validar uma postagem, credita os pontos, atualiza o nível e libera conquistas |
+| Trigger | `trg_creditar_pontos`: ao validar uma postagem, credita os pontos, atualiza o nível e libera conquistas. `trg_estornar_pontos`: ao apagar, tira os pontos e as conquistas que ela deu (o `CHECK` do saldo barra se os pontos já foram gastos) |
 | Transação | `fn_resgatar`: trava saldo e estoque (`FOR UPDATE`), debita, baixa estoque e gera o voucher de uma vez |
 | Views | `vw_feed`, `vw_ranking`, `vw_impacto_categoria` |
 | Índices | feed por usuário/data, curtidas, comentários, ranking por pontos |
@@ -92,6 +94,7 @@ Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um ban
 | GET | `/api/postagens/feed?filtro=seguindo\|alta` | feed |
 | POST | `/api/postagens` | registra uma ação (ganha pontos); multipart, com campo `foto` opcional |
 | GET | `/api/postagens/:id` | uma postagem |
+| DELETE | `/api/postagens/:id` | apaga a própria postagem (estorna os pontos, apaga a foto) |
 | POST | `/api/postagens/:id/curtir` | curte ou descurte |
 | GET | `/api/postagens/:id/comentarios` | comentários com o autor, mais recentes primeiro |
 | POST | `/api/postagens/:id/comentarios` | comenta |

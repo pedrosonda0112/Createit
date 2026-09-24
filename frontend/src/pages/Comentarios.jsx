@@ -68,7 +68,7 @@ export default function Comentarios() {
         {!post && !erro && <p className="vazio">Carregando…</p>}
 
         {post && (<>
-          <Postagem post={post} aoComentar={() => campo.current?.focus()} />
+          <Postagem post={post} aoComentar={() => campo.current?.focus()} aoApagar={voltar} />
 
           <form className="card comentar" onSubmit={comentar}>
             <Avatar nome={usuario.nome} tamanho={36} />

@@ -1,13 +1,22 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../auth.jsx';
 import { tempo, iconeCategoria } from '../util.js';
 import Avatar from './Avatar.jsx';
 import Icone from './Icone.jsx';
 
-export default function Postagem({ post, aoComentar }) {
+export default function Postagem({ post, aoComentar, aoApagar }) {
+  const { usuario, atualizar } = useAuth();
+  const { avisar } = useOutletContext() ?? {};
   const [curtiu, setCurtiu] = useState(post.curtiu);
   const [curtidas, setCurtidas] = useState(post.curtidas);
+  const [confirmando, setConfirmando] = useState(false);
+  const [apagando, setApagando] = useState(false);
+  const [erroApagar, setErroApagar] = useState('');
+  const [apagada, setApagada] = useState(false);
+  const minha = post.id_usuario === usuario.id_usuario;
+  const pontos = post.status_validacao === 'validada' ? post.pontos_gerados : 0;
 
   async function curtir() {
     // Atualiza na tela na hora e confirma com o servidor
@@ -23,6 +32,29 @@ export default function Postagem({ post, aoComentar }) {
     }
   }
 
+  async function apagar() {
+    setErroApagar('');
+    setApagando(true);
+    try {
+      const saldo = await api(`/postagens/${post.id_postagem}`, { method: 'DELETE' });
+      atualizar(saldo);
+      avisar?.(pontos > 0 ? `Ação apagada. −${pontos} pts no seu saldo.` : 'Ação apagada.');
+      // Quem mostra a lista pode tirar a postagem dela; senão, o card só some
+      if (aoApagar) aoApagar(post.id_postagem);
+      else setApagada(true);
+    } catch (err) {
+      setErroApagar(err.message);
+      setApagando(false);
+    }
+  }
+
+  function cancelar() {
+    setConfirmando(false);
+    setErroApagar('');
+  }
+
+  if (apagada) return null;
+
   return (
     <article className="card post">
       <div className="post-topo">
@@ -32,7 +64,28 @@ export default function Postagem({ post, aoComentar }) {
           <span>@{post.usuario} · {tempo(post.data_postagem)}</span>
         </div>
         {post.pontos_gerados > 0 && <span className="pts-chip">+{post.pontos_gerados}</span>}
+        {minha && !confirmando && (
+          <button type="button" className="icone-btn post-apagar" onClick={() => setConfirmando(true)} aria-label="Apagar ação">
+            <Icone nome="lixeira" tamanho={18} />
+          </button>
+        )}
       </div>
+      {confirmando && (
+        <div className="post-confirmar" role="group" aria-label="Confirmar exclusão">
+          <p>
+            <strong>Apagar esta ação?</strong>{' '}
+            {pontos > 0 && `Os ${pontos} pts que ela deu saem do seu saldo. `}
+            Curtidas e comentários também são apagados.
+          </p>
+          {erroApagar && <p className="erro" role="alert">{erroApagar}</p>}
+          <div className="post-confirmar-botoes">
+            <button type="button" className="btn btn-secundario btn-pequeno" onClick={cancelar} autoFocus>Cancelar</button>
+            <button type="button" className="btn btn-perigo btn-pequeno" onClick={apagar} disabled={apagando}>
+              {apagando ? 'Apagando…' : 'APAGAR'}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="categoria"><Icone nome={iconeCategoria[post.categoria] || 'leaf'} tamanho={15} />{post.categoria}</div>
       <p className="post-texto">{post.conteudo}</p>
       {post.url_foto && <img className="post-foto" src={post.url_foto} alt={`Foto da ação de ${post.nome}`} loading="lazy" />}

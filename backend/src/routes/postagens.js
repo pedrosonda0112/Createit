@@ -80,6 +80,29 @@ r.get('/:id', auth, async (req, res) => {
   res.json(rows[0]);
 });
 
+// Apagar a própria postagem. O trigger trg_estornar_pontos (05_apagar_postagem.sql)
+// tira os pontos e as conquistas que ela deu; curtidas e comentários saem em cascata.
+r.delete('/:id', auth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ erro: 'Essa postagem não existe.' });
+  try {
+    const { rows } = await query(
+      `DELETE FROM postagem WHERE id_postagem = $1 AND id_usuario = $2 RETURNING url_foto`,
+      [id, req.userId]
+    );
+    if (!rows[0]) return res.status(404).json({ erro: 'Essa postagem não existe ou não é sua.' });
+    if (rows[0].url_foto) apagarFoto(rows[0].url_foto).catch((err) => console.error(err));
+    const saldo = await query(`SELECT pontos_ecologicos, nivel FROM usuario WHERE id_usuario = $1`, [req.userId]);
+    res.json(saldo.rows[0]);
+  } catch (e) {
+    // CHECK (pontos_ecologicos >= 0): os pontos dessa ação já foram gastos
+    if (e.code === '23514') {
+      return res.status(409).json({ erro: 'Os pontos dessa ação já foram usados em resgates, então ela não pode ser apagada.' });
+    }
+    throw e;
+  }
+});
+
 // Curtir / descurtir
 r.post('/:id/curtir', auth, async (req, res) => {
   const id = Number(req.params.id);

@@ -56,6 +56,8 @@ p { margin: 0; }
 .btn-secundario { background: transparent; color: var(--texto); border-color: var(--borda); font-family: var(--fonte-texto); font-weight: 700; letter-spacing: 0; }
 .btn-secundario:hover:not(:disabled) { border-color: var(--texto-suave); }
 .btn-escuro { background: var(--fundo); color: var(--gelo); }
+.btn-perigo { background: var(--erro); color: var(--fundo); }
+.btn-perigo:hover:not(:disabled) { background: #f5bcb6; }
 .btn-pequeno { height: 38px; padding: 0 16px; font-size: 13px; border-radius: 10px; }
 .btn-bloco { width: 100%; }
 .btn:disabled { opacity: .55; }
@@ -207,6 +209,10 @@ p { margin: 0; }
 .categoria { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--gelo); letter-spacing: .4px; text-transform: uppercase; }
 .post-texto { font-size: 15px; }
 .post-foto { width: 100%; max-height: 520px; object-fit: cover; border-radius: 12px; background: var(--superficie-2); border: 1px solid var(--borda); }
+.post-apagar { width: 36px; height: 36px; margin: -4px -6px -4px 0; color: var(--texto-suave); }
+.post-apagar:hover { color: var(--erro); }
+.post-confirmar { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--erro); background: var(--superficie-2); font-size: 14px; }
+.post-confirmar-botoes { display: flex; justify-content: flex-end; gap: 8px; }
 .post-patrocinio { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--texto-suave); }
 .post-patrocinio strong { color: var(--texto); }
 .post-acoes { display: flex; justify-content: space-between; border-top: 1px solid var(--borda); padding-top: 4px; }
