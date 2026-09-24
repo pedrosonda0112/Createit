@@ -1,18 +1,25 @@
 -- =====================================================================
 -- Create It - Perfis de acesso (GRANT / REVOKE)
 -- Rodar como postgres (no Supabase: SQL Editor) depois do 01 e do 02.
--- Troque as senhas antes de usar em produção.
+-- Pode rodar quantas vezes quiser: se os papéis já existem, só atualiza.
 -- =====================================================================
 
--- Papéis (grupos de permissão)
-CREATE ROLE papel_app       NOLOGIN;  -- o back-end da aplicação
-CREATE ROLE papel_relatorio NOLOGIN;  -- só leitura, para relatórios e patrocinadores
-CREATE ROLE papel_admin     NOLOGIN;  -- manutenção do banco
+-- Papéis (grupos de permissão) e usuários de login
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'papel_app')       THEN CREATE ROLE papel_app NOLOGIN;       END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'papel_relatorio') THEN CREATE ROLE papel_relatorio NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'papel_admin')     THEN CREATE ROLE papel_admin NOLOGIN;     END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_createit')       THEN CREATE ROLE app_createit LOGIN;       END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'relatorio_createit') THEN CREATE ROLE relatorio_createit LOGIN; END IF;
+END $$;
 
--- Usuários de login que herdam os papéis
--- >>> TROQUE AS SENHAS ABAIXO <<<
-CREATE ROLE app_createit       LOGIN PASSWORD 'JREhkOQAvNhh54Kk' IN ROLE papel_app;
-CREATE ROLE relatorio_createit LOGIN PASSWORD 'JREhkOQAvNhh54Kk' IN ROLE papel_relatorio;
+-- >>> TROQUE AS SENHAS ABAIXO (só letras e números) <<<
+ALTER ROLE app_createit       PASSWORD 'pedro030325';
+ALTER ROLE relatorio_createit PASSWORD 'pedro030325';
+
+GRANT papel_app       TO app_createit;
+GRANT papel_relatorio TO relatorio_createit;
 
 -- Quem conecta com esses usuários já cai direto no schema createit
 ALTER ROLE app_createit       SET search_path = createit, public;
@@ -21,7 +28,7 @@ ALTER ROLE relatorio_createit SET search_path = createit, public;
 -- Ninguém usa o schema sem permissão explícita
 REVOKE ALL ON SCHEMA createit FROM PUBLIC;
 
--- No Supabase: garante que os papéis da API pública (anon e authenticated)
+-- No Supabase: os papéis da API pública (anon e authenticated)
 -- não enxergam nada do schema createit (senhas, CPF, e-mails)
 DO $$
 BEGIN

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { pool, query } from '../db.js';
+import { conectar, query } from '../db.js';
 import { auth } from '../middleware/auth.js';
 
 const r = Router();
@@ -28,7 +28,7 @@ r.post('/', auth, async (req, res) => {
   if (!id_categoria || !String(conteudo || '').trim()) {
     return res.status(400).json({ erro: 'Escolha uma categoria e conte o que você fez.' });
   }
-  const client = await pool.connect();
+  const client = await conectar();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
