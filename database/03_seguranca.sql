@@ -11,8 +11,8 @@ CREATE ROLE papel_admin     NOLOGIN;  -- manutenção do banco
 
 -- Usuários de login que herdam os papéis
 -- >>> TROQUE AS SENHAS ABAIXO <<<
-CREATE ROLE app_createit       LOGIN PASSWORD 'troque-esta-senha' IN ROLE papel_app;
-CREATE ROLE relatorio_createit LOGIN PASSWORD 'troque-esta-senha' IN ROLE papel_relatorio;
+CREATE ROLE app_createit       LOGIN PASSWORD 'JREhkOQAvNhh54Kk' IN ROLE papel_app;
+CREATE ROLE relatorio_createit LOGIN PASSWORD 'JREhkOQAvNhh54Kk' IN ROLE papel_relatorio;
 
 -- Quem conecta com esses usuários já cai direto no schema createit
 ALTER ROLE app_createit       SET search_path = createit, public;
