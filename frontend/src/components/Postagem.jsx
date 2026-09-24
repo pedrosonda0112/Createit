@@ -5,7 +5,7 @@ import { tempo, iconeCategoria } from '../util.js';
 import Avatar from './Avatar.jsx';
 import Icone from './Icone.jsx';
 
-export default function Postagem({ post }) {
+export default function Postagem({ post, aoComentar }) {
   const [curtiu, setCurtiu] = useState(post.curtiu);
   const [curtidas, setCurtidas] = useState(post.curtidas);
 
@@ -35,9 +35,7 @@ export default function Postagem({ post }) {
       </div>
       <div className="categoria"><Icone nome={iconeCategoria[post.categoria] || 'leaf'} tamanho={15} />{post.categoria}</div>
       <p className="post-texto">{post.conteudo}</p>
-      {post.url_foto
-        ? <img src={post.url_foto} alt="" style={{ borderRadius: 12 }} />
-        : null}
+      {post.url_foto && <img className="post-foto" src={post.url_foto} alt={`Foto da ação de ${post.nome}`} loading="lazy" />}
       {post.patrocinador && (
         <div className="post-patrocinio"><Icone nome="award" tamanho={14} />Desafio patrocinado por <strong>{post.patrocinador}</strong></div>
       )}
@@ -45,7 +43,10 @@ export default function Postagem({ post }) {
         <button type="button" onClick={curtir} aria-pressed={curtiu} aria-label="Curtir">
           <Icone nome="heart" tamanho={19} fill={curtiu ? 'currentColor' : 'none'} />{curtidas}
         </button>
-        <button type="button" aria-label="Comentários"><Icone nome="comment" tamanho={19} />{post.comentarios}</button>
+        {/* Na tela de comentários o botão só leva ao campo; no feed, abre a tela */}
+        {aoComentar
+          ? <button type="button" onClick={aoComentar} aria-label="Comentar"><Icone nome="comment" tamanho={19} />{post.comentarios}</button>
+          : <Link to={`/postagem/${post.id_postagem}`} aria-label="Ver comentários"><Icone nome="comment" tamanho={19} />{post.comentarios}</Link>}
         <button type="button" aria-label="Repostar"><Icone nome="repost" tamanho={19} /></button>
         <button type="button" aria-label="Compartilhar"><Icone nome="share" tamanho={19} /></button>
       </div>

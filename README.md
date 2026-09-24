@@ -11,7 +11,8 @@ create-it/
 ├── database/   scripts SQL (PostgreSQL 16 / Supabase)
 │   ├── 01_schema.sql      tabelas, constraints, índices, trigger, função de resgate e views
 │   ├── 02_seed.sql        dados de teste
-│   └── 03_seguranca.sql   perfis de acesso (GRANT/REVOKE)
+│   ├── 03_seguranca.sql   perfis de acesso (GRANT/REVOKE)
+│   └── 04_storage.sql     bucket de fotos no Supabase Storage
 ├── backend/    API em Node.js + Express
 └── frontend/   app web em React + Vite
 ```
@@ -27,6 +28,7 @@ Precisa de **Node.js 20+** e de um projeto no **Supabase** (plano gratuito serve
    - `database/01_schema.sql`: cria as tabelas, o trigger, a função de resgate e as views
    - `database/02_seed.sql`: coloca os dados de teste
    - `database/03_seguranca.sql`: cria os perfis de acesso. **Antes de rodar, troque as senhas** de `app_createit` e `relatorio_createit`.
+   - `database/04_storage.sql`: cria o bucket `fotos` no Supabase Storage (fotos das ações)
 3. Em **Project Settings > Database > Connection string**, copie a URI do **Session pooler**.
 
 As tabelas ficam no schema `createit`, e não no `public`. Isso é de propósito: o Supabase expõe o `public` na API REST dele, e aqui a API é o nosso back-end. O `03_seguranca.sql` ainda tira qualquer acesso dos papéis `anon` e `authenticated` do Supabase ao schema.
@@ -48,6 +50,8 @@ DATABASE_URL=postgresql://app_createit.<id-do-projeto>:<senha>@aws-0-sa-east-1.p
 
 A API conecta com esse usuário, que só pode ler e gravar dados (não consegue apagar tabelas, mexer nas categorias nem apagar resgates).
 
+Para aceitar fotos nas ações, preencha também `SUPABASE_URL` (Project Settings > Data API) e `SUPABASE_SECRET_KEY` (Project Settings > API Keys > Secret key). A foto passa pelo back-end, que confere se é mesmo JPG, PNG ou WEBP de até 5 MB e envia ao bucket com essa chave. Ela nunca vai para o front-end. Sem essas variáveis o app funciona normalmente, só recusa foto.
+
 > Se o pooler recusar o usuário `app_createit`, dá para conectar com o `postgres` mesmo: rode `ALTER ROLE postgres SET search_path = createit, public, extensions;` no SQL Editor e use a URI original.
 
 ### 3. Front-end
@@ -62,7 +66,7 @@ Entre com **demo@createit.com** e a senha **create123** (todos os usuários de t
 
 ### Rodando com Postgres local (opcional)
 
-Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um banco `createit`, rode os três scripts com o usuário `postgres` e use `DATABASE_URL=postgres://app_createit:<senha>@localhost:5432/createit`.
+Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um banco `createit`, rode os scripts 01, 02 e 03 com o usuário `postgres` (o 04 é só do Supabase) e use `DATABASE_URL=postgres://app_createit:<senha>@localhost:5432/createit`.
 
 ## Onde os conceitos de banco aparecem
 
@@ -84,9 +88,12 @@ Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um ban
 | POST | `/api/auth/cadastro` | cria conta |
 | POST | `/api/auth/login` | entra e devolve o token |
 | GET | `/api/auth/eu` | dados do usuário logado |
+| PUT | `/api/auth/eu` | edita nome, @usuário, bio e cidade |
 | GET | `/api/postagens/feed?filtro=seguindo\|alta` | feed |
-| POST | `/api/postagens` | registra uma ação (ganha pontos) |
+| POST | `/api/postagens` | registra uma ação (ganha pontos); multipart, com campo `foto` opcional |
+| GET | `/api/postagens/:id` | uma postagem |
 | POST | `/api/postagens/:id/curtir` | curte ou descurte |
+| GET | `/api/postagens/:id/comentarios` | comentários com o autor, mais recentes primeiro |
 | POST | `/api/postagens/:id/comentarios` | comenta |
 | GET | `/api/categorias` | categorias de ação |
 | GET | `/api/desafios` | desafios ativos com o progresso do usuário |
@@ -100,7 +107,5 @@ Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um ban
 
 ## O que ainda falta
 
-- Upload de foto nas ações
 - Validação das ações por moderador (hoje é automática)
-- Comentários na tela (a API já tem)
-- Editar perfil
+- Foto de perfil (o upload para o Storage já existe, falta a coluna e a tela)

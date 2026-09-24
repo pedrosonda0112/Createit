@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
-import { iconeCategoria } from '../util.js';
+import { iconeCategoria, LIMITE_FOTO, reduzirFoto } from '../util.js';
 import Icone from './Icone.jsx';
 
 export default function RegistrarAcao({ aoFechar, aoPublicar }) {
@@ -11,8 +11,12 @@ export default function RegistrarAcao({ aoFechar, aoPublicar }) {
   const [categoria, setCategoria] = useState(null);
   const [conteudo, setConteudo] = useState('');
   const [desafio, setDesafio] = useState('');
+  const [foto, setFoto] = useState(null);
+  const [previa, setPrevia] = useState('');
+  const [preparandoFoto, setPreparandoFoto] = useState(false);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const campoFoto = useRef(null);
 
   useEffect(() => {
     api('/categorias').then((c) => { setCategorias(c); setCategoria(c[0]?.id_categoria); });
@@ -22,15 +26,41 @@ export default function RegistrarAcao({ aoFechar, aoPublicar }) {
     return () => window.removeEventListener('keydown', esc);
   }, [aoFechar]);
 
+  // Prévia da foto escolhida (a URL temporária é liberada quando a foto muda)
+  useEffect(() => {
+    if (!foto) { setPrevia(''); return; }
+    const url = URL.createObjectURL(foto);
+    setPrevia(url);
+    return () => URL.revokeObjectURL(url);
+  }, [foto]);
+
   const selecionada = categorias.find((c) => c.id_categoria === categoria);
   const desafiosDaCategoria = desafios.filter((d) => d.id_categoria === categoria);
+
+  async function escolherFoto(e) {
+    const arquivo = e.target.files[0];
+    e.target.value = ''; // deixa escolher o mesmo arquivo de novo depois de remover
+    if (!arquivo) return;
+    setErro('');
+    if (!arquivo.type.startsWith('image/')) { setErro('Escolha um arquivo de imagem.'); return; }
+    setPreparandoFoto(true);
+    const reduzida = await reduzirFoto(arquivo);
+    setPreparandoFoto(false);
+    if (reduzida.size > LIMITE_FOTO) { setErro('A foto pode ter no máximo 5 MB.'); return; }
+    setFoto(reduzida);
+  }
 
   async function publicar(e) {
     e.preventDefault();
     setErro('');
     setEnviando(true);
+    const dados = new FormData();
+    dados.append('id_categoria', categoria);
+    dados.append('conteudo', conteudo);
+    if (desafio) dados.append('id_desafio', desafio);
+    if (foto) dados.append('foto', foto);
     try {
-      const r = await api('/postagens', { method: 'POST', body: { id_categoria: categoria, conteudo, id_desafio: desafio || null } });
+      const r = await api('/postagens', { method: 'POST', body: dados });
       atualizar({ pontos_ecologicos: r.pontos_ecologicos, nivel: r.nivel });
       aoPublicar(r.postagem);
     } catch (err) {
@@ -65,6 +95,21 @@ export default function RegistrarAcao({ aoFechar, aoPublicar }) {
             placeholder="Ex.: levei 3 kg de recicláveis ao ponto de coleta" />
         </label>
 
+        <div className="campo">
+          Foto (opcional)
+          {previa ? (
+            <div className="foto-previa">
+              <img src={previa} alt="Prévia da foto escolhida" />
+              <button type="button" className="icone-btn" onClick={() => setFoto(null)} aria-label="Remover foto"><Icone nome="x" tamanho={18} /></button>
+            </div>
+          ) : (
+            <button type="button" className="foto-escolher" onClick={() => campoFoto.current.click()} disabled={preparandoFoto}>
+              <Icone nome="camera" tamanho={22} />{preparandoFoto ? 'Preparando foto…' : 'Adicionar foto'}
+            </button>
+          )}
+          <input ref={campoFoto} type="file" accept="image/*" hidden onChange={escolherFoto} />
+        </div>
+
         {desafiosDaCategoria.length > 0 && (
           <label className="campo">
             Vincular a um desafio (opcional)
@@ -81,8 +126,8 @@ export default function RegistrarAcao({ aoFechar, aoPublicar }) {
         </div>
 
         {erro && <p className="erro" role="alert">{erro}</p>}
-        <button className="btn btn-primario btn-bloco" disabled={enviando || !conteudo.trim()}>
-          {enviando ? 'Publicando…' : 'PUBLICAR AÇÃO'}
+        <button className="btn btn-primario btn-bloco" disabled={enviando || preparandoFoto || !conteudo.trim()}>
+          {enviando ? (foto ? 'Enviando foto…' : 'Publicando…') : 'PUBLICAR AÇÃO'}
         </button>
       </form>
     </div>

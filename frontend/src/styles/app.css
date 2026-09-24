@@ -206,13 +206,32 @@ p { margin: 0; }
 .pts-chip { font-family: var(--fonte-titulo); font-weight: 800; font-size: 13px; color: var(--fundo); background: var(--gelo); border-radius: 999px; padding: 3px 10px; }
 .categoria { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--gelo); letter-spacing: .4px; text-transform: uppercase; }
 .post-texto { font-size: 15px; }
-.post-foto { height: 180px; border-radius: 12px; background: var(--superficie-2); border: 1px dashed var(--borda); display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--texto-suave); font-size: 13px; }
+.post-foto { width: 100%; max-height: 520px; object-fit: cover; border-radius: 12px; background: var(--superficie-2); border: 1px solid var(--borda); }
 .post-patrocinio { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--texto-suave); }
 .post-patrocinio strong { color: var(--texto); }
 .post-acoes { display: flex; justify-content: space-between; border-top: 1px solid var(--borda); padding-top: 4px; }
-.post-acoes button { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 8px; background: none; border: none; color: var(--texto-suave); font-size: 13px; border-radius: 8px; }
-.post-acoes button:hover { color: var(--texto); background: var(--superficie-2); }
+.post-acoes button, .post-acoes a { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 8px; background: none; border: none; color: var(--texto-suave); font-size: 13px; border-radius: 8px; }
+.post-acoes button:hover, .post-acoes a:hover { color: var(--texto); background: var(--superficie-2); }
 .post-acoes button[aria-pressed='true'] { color: var(--gelo); }
+
+/* ---------- Comentários ---------- */
+.comentar { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; }
+.comentar textarea {
+  flex: 1; min-width: 0; min-height: 44px; max-height: 160px; padding: 10px 14px; resize: vertical;
+  border-radius: var(--raio-campo); border: 1px solid var(--borda); background: var(--fundo); color: var(--texto);
+  font: inherit; font-size: 15px;
+}
+.comentar textarea::placeholder { color: #7f8a91; }
+.comentar textarea:focus { outline: none; border-color: var(--gelo); }
+.comentar .btn { height: 44px; }
+.lista-comentarios { padding: 0 16px; }
+.comentario { display: flex; gap: 12px; padding: 14px 0; }
+.comentario + .comentario { border-top: 1px solid var(--borda); }
+.comentario-corpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.comentario-topo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; font-size: 12px; color: var(--texto-suave); }
+.comentario-topo strong { font-size: 14px; color: var(--texto); }
+.comentario p { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .comentar > .avatar { display: none; } }
 
 .nova-acao { display: flex; align-items: center; gap: 14px; padding: 14px 16px; }
 .nova-acao .falso-campo {
@@ -263,6 +282,23 @@ p { margin: 0; }
 .categorias-opcoes button[aria-pressed='true'] { background: var(--gelo); border-color: var(--gelo); color: var(--fundo); }
 .previa-pontos { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-radius: 14px; background: var(--superficie-2); border: 1px solid var(--borda); }
 .previa-pontos strong { font-family: var(--fonte-titulo); font-weight: 900; font-size: 24px; color: var(--gelo); }
+.foto-escolher {
+  height: 88px; border-radius: 14px; border: 1px dashed var(--borda); background: var(--superficie-2); color: var(--texto-suave);
+  display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; font-weight: 700;
+}
+.foto-escolher:hover:not(:disabled) { border-color: var(--gelo); color: var(--texto); }
+.foto-previa { position: relative; }
+.foto-previa img { width: 100%; max-height: 260px; object-fit: cover; border-radius: 14px; border: 1px solid var(--borda); }
+.foto-previa .icone-btn { position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; background: rgba(11, 11, 12, .75); }
+.foto-previa .icone-btn:hover { background: var(--fundo); }
+
+/* Campo com prefixo fixo (o @ do usuário) */
+.campo-prefixo {
+  display: flex; align-items: center; height: 48px; padding-left: 14px; border-radius: var(--raio-campo);
+  border: 1px solid var(--borda); background: var(--superficie); color: var(--texto-suave); font-size: 15px;
+}
+.campo-prefixo:focus-within { border-color: var(--gelo); }
+.campo .campo-prefixo input { flex: 1; min-width: 0; height: 46px; padding: 0 14px 0 2px; border: none; background: none; }
 
 .aviso {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
