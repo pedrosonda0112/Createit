@@ -8,6 +8,7 @@ import Buscar from './pages/Buscar.jsx';
 import Desafios from './pages/Desafios.jsx';
 import Recompensas from './pages/Recompensas.jsx';
 import Perfil from './pages/Perfil.jsx';
+import Comentarios from './pages/Comentarios.jsx';
 
 function Protegida({ children }) {
   const { usuario, carregando } = useAuth();
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="recompensas" element={<Recompensas />} />
         <Route path="perfil" element={<Perfil />} />
         <Route path="perfil/:id" element={<Perfil />} />
+        <Route path="postagem/:id" element={<Comentarios />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

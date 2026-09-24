@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { conectar, query } from '../db.js';
 import { auth } from '../middleware/auth.js';
+import { receberFoto } from '../middleware/foto.js';
+import { apagarFoto, enviarFoto, storageConfigurado } from '../storage.js';
 
 const r = Router();
 
@@ -23,18 +25,31 @@ r.get('/feed', auth, async (req, res) => {
 
 // Registrar ação. No MVP a validação é automática (depois vira moderação).
 // A postagem entra como 'pendente' e o UPDATE para 'validada' dispara o trigger que dá os pontos.
-r.post('/', auth, async (req, res) => {
-  const { id_categoria, conteudo, id_desafio } = req.body;
+// Chega como formulário multipart por causa da foto (opcional), que vai para o Supabase Storage.
+r.post('/', auth, receberFoto, async (req, res) => {
+  const { id_categoria, conteudo, id_desafio } = req.body ?? {};
   if (!id_categoria || !String(conteudo || '').trim()) {
     return res.status(400).json({ erro: 'Escolha uma categoria e conte o que você fez.' });
   }
+
+  let urlFoto = null;
+  if (req.file) {
+    if (!storageConfigurado()) return res.status(503).json({ erro: 'O envio de fotos ainda não foi configurado no servidor.' });
+    try {
+      urlFoto = await enviarFoto(`postagens/${req.userId}`, req.file);
+    } catch (e) {
+      console.error(e);
+      return res.status(502).json({ erro: 'Não foi possível enviar a foto agora. Tente de novo.' });
+    }
+  }
+
   const client = await conectar();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `INSERT INTO postagem (id_usuario, id_categoria, id_desafio, conteudo)
-       VALUES ($1, $2, $3, $4) RETURNING id_postagem`,
-      [req.userId, id_categoria, id_desafio || null, conteudo.trim()]
+      `INSERT INTO postagem (id_usuario, id_categoria, id_desafio, conteudo, url_foto)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id_postagem`,
+      [req.userId, id_categoria, id_desafio || null, conteudo.trim(), urlFoto]
     );
     await client.query(`UPDATE postagem SET status_validacao = 'validada' WHERE id_postagem = $1`, [rows[0].id_postagem]);
     await client.query('COMMIT');
@@ -42,11 +57,27 @@ r.post('/', auth, async (req, res) => {
     const saldo = await query(`SELECT pontos_ecologicos, nivel FROM usuario WHERE id_usuario = $1`, [req.userId]);
     res.status(201).json({ postagem: post.rows[0], ...saldo.rows[0] });
   } catch (e) {
+    // A postagem não foi gravada: a foto ficaria órfã no bucket.
+    // Vem antes do ROLLBACK para acontecer mesmo se a conexão tiver caído.
+    if (urlFoto) apagarFoto(urlFoto).catch((err) => console.error(err));
     await client.query('ROLLBACK');
     throw e;
   } finally {
     client.release();
   }
+});
+
+// Uma postagem só (tela de comentários)
+r.get('/:id', auth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ erro: 'Essa postagem não existe.' });
+  const { rows } = await query(
+    `SELECT f.*, EXISTS (SELECT 1 FROM curtida c WHERE c.id_postagem = f.id_postagem AND c.id_usuario = $2) AS curtiu
+       FROM vw_feed f WHERE f.id_postagem = $1`,
+    [id, req.userId]
+  );
+  if (!rows[0]) return res.status(404).json({ erro: 'Essa postagem não existe.' });
+  res.json(rows[0]);
 });
 
 // Curtir / descurtir
@@ -60,14 +91,40 @@ r.post('/:id/curtir', auth, async (req, res) => {
   res.json({ curtiu: del.rowCount === 0, curtidas: rows[0].curtidas });
 });
 
-r.post('/:id/comentarios', auth, async (req, res) => {
-  const texto = String(req.body.texto || '').trim();
-  if (!texto) return res.status(400).json({ erro: 'Escreva um comentário.' });
+// Comentários da postagem, com o autor de cada um (mais recentes primeiro)
+r.get('/:id/comentarios', auth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ erro: 'Essa postagem não existe.' });
   const { rows } = await query(
-    `INSERT INTO comentario (id_usuario, id_postagem, texto) VALUES ($1, $2, $3) RETURNING *`,
-    [req.userId, Number(req.params.id), texto.slice(0, 500)]
+    `SELECT c.id_comentario, c.id_usuario, c.texto, c.data_comentario, u.nome, u.usuario
+       FROM comentario c JOIN usuario u ON u.id_usuario = c.id_usuario
+      WHERE c.id_postagem = $1
+      ORDER BY c.data_comentario DESC`,
+    [id]
   );
-  res.status(201).json(rows[0]);
+  res.json(rows);
+});
+
+r.post('/:id/comentarios', auth, async (req, res) => {
+  const id = Number(req.params.id);
+  const texto = String(req.body?.texto || '').trim();
+  if (!Number.isInteger(id)) return res.status(404).json({ erro: 'Essa postagem não existe.' });
+  if (!texto) return res.status(400).json({ erro: 'Escreva um comentário.' });
+  try {
+    // Devolve o comentário já com nome e @ do autor, igual à listagem
+    const { rows } = await query(
+      `WITH novo AS (
+         INSERT INTO comentario (id_usuario, id_postagem, texto) VALUES ($1, $2, $3) RETURNING *
+       )
+       SELECT novo.id_comentario, novo.id_usuario, novo.texto, novo.data_comentario, u.nome, u.usuario
+         FROM novo JOIN usuario u ON u.id_usuario = novo.id_usuario`,
+      [req.userId, id, texto.slice(0, 500)]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    if (e.code === '23503') return res.status(404).json({ erro: 'Essa postagem não existe mais.' });
+    throw e;
+  }
 });
 
 export default r;

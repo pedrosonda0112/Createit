@@ -48,4 +48,34 @@ r.get('/eu', auth, async (req, res) => {
   res.json(rows[0]);
 });
 
+// Editar perfil: nome, @usuario, bio e cidade (bio e cidade vazias viram NULL)
+r.put('/eu', auth, async (req, res) => {
+  const b = req.body ?? {};
+  const nome = String(b.nome || '').trim();
+  const usuario = String(b.usuario || '').trim().replace(/^@/, '').toLowerCase();
+  const bio = String(b.bio || '').trim();
+  const cidade = String(b.cidade || '').trim();
+
+  if (!nome) return res.status(400).json({ erro: 'Preencha seu nome.' });
+  if (nome.length > 120) return res.status(400).json({ erro: 'O nome pode ter no máximo 120 caracteres.' });
+  if (!/^[a-z0-9._]{3,40}$/.test(usuario)) {
+    return res.status(400).json({ erro: 'O @ precisa ter de 3 a 40 caracteres: letras, números, ponto ou _.' });
+  }
+  if (bio.length > 280) return res.status(400).json({ erro: 'A bio pode ter no máximo 280 caracteres.' });
+  if (cidade.length > 80) return res.status(400).json({ erro: 'A cidade pode ter no máximo 80 caracteres.' });
+
+  try {
+    const { rows } = await query(
+      `UPDATE usuario SET nome = $1, usuario = $2, bio = $3, cidade = $4
+        WHERE id_usuario = $5 RETURNING ${PUBLICO}`,
+      [nome, usuario, bio || null, cidade || null, req.userId]
+    );
+    if (!rows[0]) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+    res.json(rows[0]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ erro: `O @${usuario} já está em uso. Escolha outro.` });
+    throw e;
+  }
+});
+
 export default r;

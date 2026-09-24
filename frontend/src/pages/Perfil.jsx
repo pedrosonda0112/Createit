@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useOutletContext, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmt, iconeCategoria, nomeNivel, PONTOS_POR_NIVEL, tempo } from '../util.js';
 import Avatar from '../components/Avatar.jsx';
+import EditarPerfil from '../components/EditarPerfil.jsx';
 import Icone from '../components/Icone.jsx';
 import Postagem from '../components/Postagem.jsx';
 
@@ -17,12 +18,21 @@ export default function Perfil() {
   const meu = idPerfil === usuario.id_usuario;
   const [p, setP] = useState(null);
   const [aba, setAba] = useState('acoes');
+  const [editando, setEditando] = useState(false);
+  const fecharEdicao = useCallback(() => setEditando(false), []);
 
   useEffect(() => { setP(null); api(`/usuarios/${idPerfil}`).then(setP).catch((e) => avisar(e.message)); }, [idPerfil, ultimaPostagem, usuario.pontos_ecologicos, avisar]);
 
   async function seguir() {
     const r = await api(`/usuarios/${idPerfil}/seguir`, { method: 'POST' });
     setP({ ...p, eu_sigo: r.seguindo, seguidores: p.seguidores + (r.seguindo ? 1 : -1) });
+  }
+
+  // Atualiza o cabeçalho e o nome/@ nas postagens da lista sem recarregar o perfil
+  function perfilSalvo(u) {
+    setEditando(false);
+    setP((x) => ({ ...x, ...u, postagens: x.postagens.map((post) => ({ ...post, nome: u.nome, usuario: u.usuario })) }));
+    avisar('Perfil atualizado.');
   }
 
   if (!p) return <div className="conteudo"><p className="vazio">Carregando perfil…</p></div>;
@@ -41,7 +51,7 @@ export default function Perfil() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: -48, gap: 12, flexWrap: 'wrap' }}>
               <span style={{ borderRadius: '50%', boxShadow: '0 0 0 4px var(--superficie)' }}><Avatar nome={p.nome} tamanho={96} /></span>
               {meu
-                ? <button className="btn btn-primario btn-pequeno" onClick={() => avisar('Edição de perfil chega na próxima versão.')}><Icone nome="edit" tamanho={16} />Editar perfil</button>
+                ? <button className="btn btn-primario btn-pequeno" onClick={() => setEditando(true)}><Icone nome="edit" tamanho={16} />Editar perfil</button>
                 : <button className={`btn btn-pequeno ${p.eu_sigo ? 'btn-secundario' : 'btn-primario'}`} onClick={seguir}>{p.eu_sigo ? 'Seguindo' : 'Seguir'}</button>}
             </div>
             <div>
@@ -120,6 +130,8 @@ export default function Perfil() {
           </section>
         )}
       </aside>
+
+      {editando && <EditarPerfil perfil={p} aoFechar={fecharEdicao} aoSalvar={perfilSalvo} />}
     </div>
   );
 }
