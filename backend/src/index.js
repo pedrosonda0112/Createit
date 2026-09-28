@@ -22,5 +22,10 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ erro: 'Algo deu errado no servidor. Tente de novo.' });
 });
 
-const port = process.env.PORT || 3333;
-app.listen(port, () => console.log(`API do Create It rodando em http://localhost:${port}`));
+// Na Vercel o app exportado vira uma função; localmente sobe o servidor normalmente
+if (!process.env.VERCEL) {
+  const port = process.env.PORT || 3333;
+  app.listen(port, () => console.log(`API do Create It rodando em http://localhost:${port}`));
+}
+
+export default app;
