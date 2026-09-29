@@ -3,6 +3,7 @@ import { useAuth } from './auth.jsx';
 import Shell from './components/Shell.jsx';
 import Login from './pages/Login.jsx';
 import Cadastro from './pages/Cadastro.jsx';
+import EsqueciSenha from './pages/EsqueciSenha.jsx';
 import Home from './pages/Home.jsx';
 import Buscar from './pages/Buscar.jsx';
 import Desafios from './pages/Desafios.jsx';
@@ -27,6 +28,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<SoDeslogado><Login /></SoDeslogado>} />
       <Route path="/cadastro" element={<SoDeslogado><Cadastro /></SoDeslogado>} />
+      <Route path="/esqueci-senha" element={<SoDeslogado><EsqueciSenha /></SoDeslogado>} />
       <Route element={<Protegida><Shell /></Protegida>}>
         <Route index element={<Home />} />
         <Route path="buscar" element={<Buscar />} />

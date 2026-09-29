@@ -45,3 +45,7 @@ export async function reduzirFoto(arquivo, ladoMax = 1600) {
     return arquivo;
   }
 }
+
+// Formata o CPF enquanto a pessoa digita: 000.000.000-00
+export const mascaraCpf = (v) => v.replace(/\D/g, '').slice(0, 11)
+  .replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2');

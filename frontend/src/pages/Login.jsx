@@ -40,7 +40,7 @@ export default function Login() {
         </label>
         <div className="linha-opcoes">
           <label className="check"><input type="checkbox" defaultChecked />Lembrar de mim</label>
-          <a href="#" onClick={(e) => e.preventDefault()} style={{ fontWeight: 700 }}>Esqueci minha senha</a>
+          <Link to="/esqueci-senha" style={{ fontWeight: 700 }}>Esqueci minha senha</Link>
         </div>
         {erro && <p className="erro" role="alert">{erro}</p>}
         <button className="btn btn-primario btn-bloco" disabled={enviando}>{enviando ? 'Entrando…' : 'ENTRAR'}</button>

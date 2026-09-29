@@ -3,10 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import LayoutAuth from '../components/LayoutAuth.jsx';
-
-// Formata o CPF enquanto a pessoa digita: 000.000.000-00
-const mascaraCpf = (v) => v.replace(/\D/g, '').slice(0, 11)
-  .replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+import { mascaraCpf } from '../util.js';
 
 export default function Cadastro() {
   const { entrar } = useAuth();

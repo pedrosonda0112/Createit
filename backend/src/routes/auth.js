@@ -42,6 +42,26 @@ r.post('/login', async (req, res) => {
   res.json({ token: gerarToken(u.id_usuario), usuario: u });
 });
 
+// Esqueci minha senha: a senha fica só em hash, então não dá para recuperar,
+// só trocar. A pessoa confirma que é dona da conta com e-mail + CPF.
+r.post('/redefinir-senha', async (req, res) => {
+  const { email, cpf, senha } = req.body ?? {};
+  const emailLimpo = String(email || '').trim().toLowerCase();
+  const cpfLimpo = String(cpf || '').replace(/\D/g, '');
+  if (!emailLimpo || !senha) return res.status(400).json({ erro: 'Preencha e-mail, CPF e a nova senha.' });
+  if (cpfLimpo.length !== 11) return res.status(400).json({ erro: 'O CPF precisa ter 11 números.' });
+  if (String(senha).length < 8) return res.status(400).json({ erro: 'A senha precisa ter pelo menos 8 caracteres.' });
+
+  const hash = await bcrypt.hash(String(senha), 10);
+  const { rowCount } = await query(
+    'UPDATE usuario SET senha_hash = $1 WHERE email = $2 AND cpf = $3',
+    [hash, emailLimpo, cpfLimpo]
+  );
+  // Mesma mensagem para e-mail ou CPF errado, para não revelar quais e-mails têm conta
+  if (!rowCount) return res.status(400).json({ erro: 'E-mail e CPF não conferem com nenhuma conta.' });
+  res.json({ ok: true });
+});
+
 r.get('/eu', auth, async (req, res) => {
   const { rows } = await query(`SELECT ${PUBLICO} FROM usuario WHERE id_usuario = $1`, [req.userId]);
   if (!rows[0]) return res.status(404).json({ erro: 'Usuário não encontrado.' });
