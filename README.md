@@ -66,6 +66,24 @@ npm run dev              # app em http://localhost:5173
 
 Entre com **demo@createit.com** e a senha **create123** (todos os usuários de teste usam essa senha).
 
+### 4. App mobile (Android / iOS)
+
+O app usa **a mesma API** do site, e por isso o mesmo banco: ele nunca conecta direto no Postgres nem guarda credencial do Supabase. Login, pontos, postagens, fotos e resgates são os mesmos nas duas versões.
+
+```bash
+cd mobile
+npm install
+npx expo start           # abre o QR code
+```
+
+Instale o **Expo Go** no celular e leia o QR code. Celular e computador precisam estar na mesma rede Wi-Fi.
+
+- **Desenvolvimento:** com o backend rodando (`npm run dev`), o app descobre sozinho o IP do computador e usa `http://<ip>:3333/api`. Se o firewall do Windows perguntar, libere o Node na rede privada.
+- **Produção:** copie `mobile/.env.example` para `mobile/.env` e preencha `EXPO_PUBLIC_API_URL=https://<seu-projeto>.vercel.app/api`.
+- **Gerar APK / IPA:** `npx eas-cli@latest build -p android` (ou `-p ios`). Precisa de uma conta gratuita na Expo.
+
+O token de login fica no armazenamento seguro do aparelho (Keychain no iOS, Keystore no Android). As fotos são convertidas para JPEG de até 1600 px antes do envio, então fotos HEIC do iPhone também funcionam.
+
 ### Rodando com Postgres local (opcional)
 
 Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um banco `createit`, rode os scripts 01, 02, 03 e 05 com o usuário `postgres` (o 04 é só do Supabase) e use `DATABASE_URL=postgres://app_createit:<senha>@localhost:5432/createit`.
