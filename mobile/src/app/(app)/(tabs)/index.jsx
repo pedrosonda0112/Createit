@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { api } from '../../../lib/api.js';
 import { useAuth } from '../../../lib/auth.jsx';
+import { useAoVivo } from '../../../lib/aoVivo.js';
 import { useDados } from '../../../lib/useDados.js';
 import { fmt } from '../../../lib/util.js';
 import { cor, fonte, raio } from '../../../lib/tema.js';
@@ -16,10 +17,41 @@ export default function Feed() {
   const [filtro, setFiltro] = useState('seguindo');
   const carregar = useCallback(() => api(`/postagens/feed?filtro=${filtro}`), [filtro]);
   const { dados: posts, setDados: setPosts, erro, atualizando, atualizar } = useDados(carregar);
+  // Feed novo já buscado, esperando a pessoa tocar em "novas postagens"
+  const [novo, setNovo] = useState(null);
+  const espera = useRef(null);
+  const rolagem = useRef(null);
+
+  useEffect(() => () => clearTimeout(espera.current), []);
+
+  // Alguém postou: a API diz se entra no meu feed (sigo a pessoa?). A lista não pula
+  // sozinha embaixo de quem está lendo; aparece o botão. Só no "Seguindo": no
+  // "Em alta" uma postagem nova (sem curtidas) não sobe para o topo.
+  // As minhas já entram ao voltar da tela de registrar.
+  useAoVivo((evento, dados) => {
+    if (evento !== 'nova_postagem' || filtro !== 'seguindo' || dados.id_usuario === usuario.id_usuario) return;
+    // Várias postagens seguidas viram uma busca só
+    clearTimeout(espera.current);
+    espera.current = setTimeout(() => {
+      api('/postagens/feed?filtro=seguindo').then((lista) => setNovo({ filtro: 'seguindo', lista })).catch(() => {});
+    }, 800);
+  });
+
+  // Conta só as que ainda não estão na tela (puxar para atualizar já zera)
+  const qtdNovas = novo?.filtro === filtro && posts
+    ? novo.lista.filter((p) => !posts.some((x) => x.id_postagem === p.id_postagem)).length
+    : 0;
+
+  function mostrarNovas() {
+    setPosts(novo.lista);
+    setNovo(null);
+    rolagem.current?.scrollTo({ y: 0, animated: true });
+  }
 
   function trocarFiltro(f) {
     if (f === filtro) return;
     setPosts(null);
+    setNovo(null);
     setFiltro(f);
   }
 
@@ -29,6 +61,13 @@ export default function Feed() {
     <Tela
       aoAtualizar={atualizar}
       atualizando={atualizando}
+      rolagemRef={rolagem}
+      flutuante={qtdNovas > 0 && (
+        <Pressable onPress={mostrarNovas} style={s.novas} accessibilityRole="button">
+          <Icone nome="seta-cima" tamanho={16} cor={cor.fundo} />
+          <Texto estilo={s.novasTexto}>{qtdNovas === 1 ? '1 nova postagem' : `${qtdNovas} novas postagens`}</Texto>
+        </Pressable>
+      )}
       direita={(<>
         <View style={s.marca}>
           <Image source={require('../../../../assets/logo-arvore.png')} style={{ width: 28, height: 28 }} resizeMode="contain" />
@@ -78,6 +117,11 @@ const s = StyleSheet.create({
     borderRadius: 999, borderWidth: 1, borderColor: cor.borda, backgroundColor: cor.superficie,
   },
   saldoTexto: { fontFamily: fonte.tituloForte, fontSize: 13, color: cor.gelo },
+  novas: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 16, borderRadius: 999,
+    backgroundColor: cor.gelo, elevation: 6, shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 6 },
+  },
+  novasTexto: { fontFamily: fonte.textoForte, fontSize: 13, color: cor.fundo },
   novaAcao: { padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
   falsoCampo: {
     flex: 1, height: 44, justifyContent: 'center', paddingHorizontal: 14,

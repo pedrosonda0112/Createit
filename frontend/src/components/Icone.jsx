@@ -21,6 +21,7 @@ const P = {
   logout: <path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10" />,
   x: <path d="M6 6l12 12M18 6L6 18" />,
   voltar: <path d="M19 12H5M11 6l-6 6 6 6" />,
+  'seta-cima': <path d="M12 19V5M6 11l6-6 6 6" />,
   lixeira: <><path d="M4 7h16M10 11v6M14 11v6" /><path d="M6 7l1 13h10l1-13M9 7V4h6v3" /></>,
   clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
   ticket: <path d="M3 8a2 2 0 0 0 0 4 2 2 0 0 1 0 4v2h18v-2a2 2 0 0 1 0-4 2 2 0 0 0 0-4V6H3z" />,

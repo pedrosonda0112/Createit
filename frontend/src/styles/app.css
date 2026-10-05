@@ -312,3 +312,12 @@ p { margin: 0; }
   box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
 }
 @media (max-width: 860px) { .aviso { bottom: 96px; } }
+
+/* "N novas postagens": gruda abaixo do topo enquanto a pessoa rola o feed */
+.novas-postagens {
+  position: sticky; top: 84px; z-index: 5; align-self: center;
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px;
+  border: none; border-radius: 999px; background: var(--gelo); color: var(--fundo);
+  font: 700 13px var(--fonte-texto); cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, .4);
+}
+.novas-postagens:hover { background: var(--gelo-claro); }

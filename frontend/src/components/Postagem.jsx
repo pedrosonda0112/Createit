@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
+import { useAoVivo } from '../aoVivo.js';
 import { tempo, iconeCategoria } from '../util.js';
 import Avatar from './Avatar.jsx';
 import Icone from './Icone.jsx';
@@ -11,10 +12,25 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
   const { avisar } = useOutletContext() ?? {};
   const [curtiu, setCurtiu] = useState(post.curtiu);
   const [curtidas, setCurtidas] = useState(post.curtidas);
+  const [comentarios, setComentarios] = useState(post.comentarios);
   const [confirmando, setConfirmando] = useState(false);
   const [apagando, setApagando] = useState(false);
   const [erroApagar, setErroApagar] = useState('');
   const [apagada, setApagada] = useState(false);
+  // Quem mostra a postagem pode trocá-la por uma versão nova do servidor
+  useEffect(() => { setCurtiu(post.curtiu); setCurtidas(post.curtidas); }, [post.curtiu, post.curtidas]);
+  useEffect(() => { setComentarios(post.comentarios); }, [post.comentarios]);
+
+  // Totais ao vivo; se outra pessoa (ou outra aba) apagou, o card some
+  useAoVivo((evento, dados) => {
+    if (dados.id_postagem !== post.id_postagem) return;
+    if (evento === 'contadores') {
+      setCurtidas(dados.curtidas);
+      setComentarios(dados.comentarios);
+    } else if (evento === 'postagem_apagada') {
+      setApagada(true);
+    }
+  });
   const minha = post.id_usuario === usuario.id_usuario;
   const pontos = post.status_validacao === 'validada' ? post.pontos_gerados : 0;
 
@@ -98,8 +114,8 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
         </button>
         {/* Na tela de comentários o botão só leva ao campo; no feed, abre a tela */}
         {aoComentar
-          ? <button type="button" onClick={aoComentar} aria-label="Comentar"><Icone nome="comment" tamanho={19} />{post.comentarios}</button>
-          : <Link to={`/postagem/${post.id_postagem}`} aria-label="Ver comentários"><Icone nome="comment" tamanho={19} />{post.comentarios}</Link>}
+          ? <button type="button" onClick={aoComentar} aria-label="Comentar"><Icone nome="comment" tamanho={19} />{comentarios}</button>
+          : <Link to={`/postagem/${post.id_postagem}`} aria-label="Ver comentários"><Icone nome="comment" tamanho={19} />{comentarios}</Link>}
         <button type="button" aria-label="Repostar"><Icone nome="repost" tamanho={19} /></button>
         <button type="button" aria-label="Compartilhar"><Icone nome="share" tamanho={19} /></button>
       </div>

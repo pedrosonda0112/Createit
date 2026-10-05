@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
+import { useAoVivo } from '../aoVivo.js';
 import { tempo } from '../util.js';
 import Avatar from '../components/Avatar.jsx';
 import Icone from '../components/Icone.jsx';
@@ -29,6 +30,17 @@ export default function Comentarios() {
       .catch((e) => setErro(e.message));
   }, [id]);
 
+  // Comentário novo de outra pessoa: busca a lista de novo pela API (o aviso só traz o id)
+  useAoVivo((evento, dados) => {
+    if (dados.id_postagem !== Number(id)) return;
+    if (evento === 'novo_comentario' && !comentarios.some((c) => c.id_comentario === dados.id_comentario)) {
+      api(`/postagens/${id}/comentarios`).then(setComentarios).catch(() => {});
+    } else if (evento === 'postagem_apagada') {
+      setPost(null);
+      setErro('Essa postagem foi apagada.');
+    }
+  });
+
   // Veio de outra tela do app: volta para ela. Abriu o link direto: vai para o feed.
   const voltar = () => (local.key !== 'default' ? navegar(-1) : navegar('/'));
 
@@ -38,7 +50,8 @@ export default function Comentarios() {
     setEnviando(true);
     try {
       const novo = await api(`/postagens/${id}/comentarios`, { method: 'POST', body: { texto } });
-      setComentarios((lista) => [novo, ...lista]);
+      // O aviso ao vivo pode ter trazido o comentário antes da resposta
+      setComentarios((lista) => (lista.some((c) => c.id_comentario === novo.id_comentario) ? lista : [novo, ...lista]));
       setPost((p) => ({ ...p, comentarios: p.comentarios + 1 }));
       setTexto('');
     } catch (err) {

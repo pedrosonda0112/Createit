@@ -3,6 +3,7 @@ import { Alert, Image, Pressable, Share, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
+import { useAoVivo } from '../lib/aoVivo.js';
 import { iconeCategoria, tempo } from '../lib/util.js';
 import { cor, fonte } from '../lib/tema.js';
 import { useAviso } from './Aviso.jsx';
@@ -14,9 +15,22 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
   const avisar = useAviso();
   const [curtiu, setCurtiu] = useState(post.curtiu);
   const [curtidas, setCurtidas] = useState(post.curtidas);
+  const [comentarios, setComentarios] = useState(post.comentarios);
   const [apagada, setApagada] = useState(false);
   // A lista recarrega ao voltar para a tela: acompanha os números novos do servidor
   useEffect(() => { setCurtiu(post.curtiu); setCurtidas(post.curtidas); }, [post.curtiu, post.curtidas]);
+  useEffect(() => { setComentarios(post.comentarios); }, [post.comentarios]);
+
+  // Totais ao vivo; se outra pessoa (ou outro aparelho) apagou, o card some
+  useAoVivo((evento, dados) => {
+    if (dados.id_postagem !== post.id_postagem) return;
+    if (evento === 'contadores') {
+      setCurtidas(dados.curtidas);
+      setComentarios(dados.comentarios);
+    } else if (evento === 'postagem_apagada') {
+      setApagada(true);
+    }
+  });
   const minha = post.id_usuario === usuario.id_usuario;
   const pontos = post.status_validacao === 'validada' ? post.pontos_gerados : 0;
   const abrirPerfil = () => router.push(`/perfil/${post.id_usuario}`);
@@ -100,7 +114,7 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
         </Pressable>
         <Pressable onPress={aoComentar || (() => router.push(`/postagem/${post.id_postagem}`))} style={s.acao} accessibilityLabel="Comentários">
           <Icone nome="comment" tamanho={19} cor={cor.textoSuave} />
-          <Texto estilo={s.acaoTexto}>{post.comentarios}</Texto>
+          <Texto estilo={s.acaoTexto}>{comentarios}</Texto>
         </Pressable>
         <Pressable onPress={compartilhar} style={s.acao} accessibilityLabel="Compartilhar">
           <Icone nome="share" tamanho={19} cor={cor.textoSuave} />

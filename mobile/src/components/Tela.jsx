@@ -11,7 +11,9 @@ export function voltar() {
   else router.replace('/');
 }
 
-export default function Tela({ titulo, comVoltar, direita, aoAtualizar, atualizando = false, rodape, children, rolagem = true }) {
+// flutuante: algo que fica por cima da rolagem, logo abaixo do cabeçalho (ex.: "novas postagens")
+// rolagemRef: ref do ScrollView, para quem precisar voltar ao topo
+export default function Tela({ titulo, comVoltar, direita, aoAtualizar, atualizando = false, rodape, children, rolagem = true, flutuante, rolagemRef }) {
   const cabecalho = (titulo || comVoltar || direita) && (
     <View style={s.cabecalho}>
       {comVoltar && (
@@ -28,15 +30,17 @@ export default function Tela({ titulo, comVoltar, direita, aoAtualizar, atualiza
     <SafeAreaView style={s.fundo} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {cabecalho}
-        {rolagem ? (
+        {rolagem ? (<View style={{ flex: 1 }}>
           <ScrollView
+            ref={rolagemRef}
             contentContainerStyle={s.conteudo}
             keyboardShouldPersistTaps="handled"
             refreshControl={aoAtualizar ? <RefreshControl refreshing={atualizando} onRefresh={aoAtualizar} tintColor={cor.gelo} colors={[cor.gelo]} progressBackgroundColor={cor.superficie} /> : undefined}
           >
             {children}
           </ScrollView>
-        ) : children}
+          {flutuante ? <View style={s.flutuante} pointerEvents="box-none">{flutuante}</View> : null}
+        </View>) : children}
         {rodape}
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -49,4 +53,5 @@ const s = StyleSheet.create({
   voltar: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginLeft: -6 },
   titulo: { flex: 1, fontSize: 26, lineHeight: 32 },
   conteudo: { paddingHorizontal: 16, paddingBottom: 32, gap: 16 },
+  flutuante: { position: 'absolute', top: 8, left: 0, right: 0, alignItems: 'center' },
 });

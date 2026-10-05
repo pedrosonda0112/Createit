@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../../lib/api.js';
+import { useAoVivo } from '../../../lib/aoVivo.js';
 import { useDados } from '../../../lib/useDados.js';
 import { tempo } from '../../../lib/util.js';
 import { cor, fonte, raio } from '../../../lib/tema.js';
@@ -25,13 +26,27 @@ export default function Comentarios() {
     return { post, comentarios };
   }, [id]);
   const { dados, setDados, erro, atualizando, atualizar } = useDados(carregar);
+  const [apagada, setApagada] = useState(false);
+
+  // Comentário novo de outra pessoa: busca a lista de novo pela API (o aviso só traz o id)
+  useAoVivo((evento, aviso) => {
+    if (aviso.id_postagem !== Number(id)) return;
+    if (evento === 'novo_comentario' && dados && !dados.comentarios.some((c) => c.id_comentario === aviso.id_comentario)) {
+      api(`/postagens/${id}/comentarios`).then((comentarios) => setDados((d) => d && { ...d, comentarios })).catch(() => {});
+    } else if (evento === 'postagem_apagada') {
+      setApagada(true);
+    }
+  });
 
   async function comentar() {
     if (!texto.trim() || enviando) return;
     setEnviando(true);
     try {
       const novo = await api(`/postagens/${id}/comentarios`, { method: 'POST', body: { texto } });
-      setDados((d) => ({ post: { ...d.post, comentarios: d.post.comentarios + 1 }, comentarios: [novo, ...d.comentarios] }));
+      // O aviso ao vivo pode ter trazido o comentário antes da resposta
+      setDados((d) => d.comentarios.some((c) => c.id_comentario === novo.id_comentario)
+        ? d
+        : { post: { ...d.post, comentarios: d.post.comentarios + 1 }, comentarios: [novo, ...d.comentarios] });
       setTexto('');
     } catch (err) {
       avisar(err.message);
@@ -40,7 +55,7 @@ export default function Comentarios() {
     }
   }
 
-  const rodape = dados && (
+  const rodape = dados && !apagada && (
     <View style={[s.comentar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
       <TextInput
         ref={campo}
@@ -65,8 +80,12 @@ export default function Comentarios() {
         <Botao tipo="secundario" onPress={() => router.replace('/')}>Voltar para o feed</Botao>
       </>) : null}
       {!dados && !erro && <Vazio>Carregando…</Vazio>}
+      {apagada && (<>
+        <Vazio>Essa postagem foi apagada.</Vazio>
+        <Botao tipo="secundario" onPress={() => router.replace('/')}>Voltar para o feed</Botao>
+      </>)}
 
-      {dados && (<>
+      {dados && !apagada && (<>
         <Postagem post={dados.post} aoComentar={() => campo.current?.focus()} aoApagar={voltar} />
         <Card estilo={{ padding: 16, gap: 16 }}>
           {dados.comentarios.length === 0 && <Vazio>Ninguém comentou ainda. Seja a primeira pessoa.</Vazio>}

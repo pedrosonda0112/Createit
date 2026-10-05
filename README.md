@@ -13,7 +13,8 @@ create-it/
 │   ├── 02_seed.sql        dados de teste
 │   ├── 03_seguranca.sql   perfis de acesso (GRANT/REVOKE)
 │   ├── 04_storage.sql     bucket de fotos no Supabase Storage
-│   └── 05_apagar_postagem.sql  trigger que estorna pontos e conquistas ao apagar uma postagem
+│   ├── 05_apagar_postagem.sql  trigger que estorna pontos e conquistas ao apagar uma postagem
+│   └── 06_tempo_real.sql  triggers que avisam o site e o app em tempo real (Supabase Realtime)
 ├── backend/    API em Node.js + Express
 └── frontend/   app web em React + Vite
 ```
@@ -31,6 +32,7 @@ Precisa de **Node.js 20+** e de um projeto no **Supabase** (plano gratuito serve
    - `database/03_seguranca.sql`: cria os perfis de acesso. **Antes de rodar, troque as senhas** de `app_createit` e `relatorio_createit`.
    - `database/04_storage.sql`: cria o bucket `fotos` no Supabase Storage (fotos das ações)
    - `database/05_apagar_postagem.sql`: trigger que desfaz pontos e conquistas quando uma postagem é apagada. Não apaga dados, então dá para rodar num banco que já está em uso.
+   - `database/06_tempo_real.sql`: triggers que avisam o site e o app quando entra postagem, curtida ou comentário (veja **Tempo real** abaixo). Também não apaga dados.
 3. Em **Project Settings > Database > Connection string**, copie a URI do **Session pooler**.
 
 As tabelas ficam no schema `createit`, e não no `public`. Isso é de propósito: o Supabase expõe o `public` na API REST dele, e aqui a API é o nosso back-end. O `03_seguranca.sql` ainda tira qualquer acesso dos papéis `anon` e `authenticated` do Supabase ao schema.
@@ -64,11 +66,13 @@ npm install
 npm run dev              # app em http://localhost:5173
 ```
 
+Para o feed se atualizar sozinho, copie `frontend/.env.example` para `frontend/.env` e preencha `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY`. Na Vercel, cadastre as duas em **Settings > Environment Variables**.
+
 Entre com **demo@createit.com** e a senha **create123** (todos os usuários de teste usam essa senha).
 
 ### 4. App mobile (Android / iOS)
 
-O app usa **a mesma API** do site, e por isso o mesmo banco: ele nunca conecta direto no Postgres nem guarda credencial do Supabase. Login, pontos, postagens, fotos e resgates são os mesmos nas duas versões.
+O app usa **a mesma API** do site, e por isso o mesmo banco: ele nunca conecta direto no Postgres nem guarda credencial do Supabase (a chave publishable do tempo real é pública e não dá acesso ao banco). Login, pontos, postagens, fotos e resgates são os mesmos nas duas versões.
 
 ```bash
 cd mobile
@@ -80,13 +84,29 @@ Instale o **Expo Go** no celular e leia o QR code. Celular e computador precisam
 
 - **Desenvolvimento:** com o backend rodando (`npm run dev`), o app descobre sozinho o IP do computador e usa `http://<ip>:3333/api`. Se o firewall do Windows perguntar, libere o Node na rede privada.
 - **Produção:** copie `mobile/.env.example` para `mobile/.env` e preencha `EXPO_PUBLIC_API_URL=https://<seu-projeto>.vercel.app/api`.
+- **Tempo real:** no mesmo `mobile/.env`, preencha `EXPO_PUBLIC_SUPABASE_URL` e `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Depois de mudar o `.env`, reinicie o `npx expo start`.
 - **Gerar APK / IPA:** `npx eas-cli@latest build -p android` (ou `-p ios`). Precisa de uma conta gratuita na Expo.
 
 O token de login fica no armazenamento seguro do aparelho (Keychain no iOS, Keystore no Android). As fotos são convertidas para JPEG de até 1600 px antes do envio, então fotos HEIC do iPhone também funcionam.
 
+### Tempo real
+
+Feed, curtidas e comentários se atualizam sozinhos no site e no app:
+
+- **Postagem nova** de quem você segue: aparece o botão "N novas postagens" no topo do feed (aba Seguindo). A lista não pula sozinha enquanto você lê.
+- **Curtidas e comentários:** os números mudam na hora em qualquer postagem na tela.
+- **Tela de comentários:** comentários de outras pessoas aparecem sem recarregar.
+- **Postagem apagada:** some da tela de quem está vendo.
+
+Como funciona: os triggers do `06_tempo_real.sql` chamam `realtime.send` e publicam um aviso no canal `feed` do **Supabase Realtime (Broadcast)**. O aviso só sai depois do COMMIT e leva apenas ids e totais (ex.: `{ id_postagem: 12, curtidas: 5 }`), nunca texto nem dados pessoais. Ao receber, o site e o app buscam o resto **pela API, com login**, como sempre. Ninguém lê o banco direto.
+
+- O canal é público: basta a chave **publishable** (`sb_publishable_...`), que é feita para ficar no front-end. Ela não dá acesso às tabelas, porque o `anon` não enxerga o schema `createit`. Nunca use a **secret key** no front-end.
+- A API na Vercel não precisa de websocket: quem mantém a conexão é o Supabase.
+- Sem as variáveis `*_SUPABASE_*`, o site e o app funcionam normalmente, só não se atualizam sozinhos.
+
 ### Rodando com Postgres local (opcional)
 
-Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um banco `createit`, rode os scripts 01, 02, 03 e 05 com o usuário `postgres` (o 04 é só do Supabase) e use `DATABASE_URL=postgres://app_createit:<senha>@localhost:5432/createit`.
+Os mesmos scripts funcionam num PostgreSQL 16 instalado na máquina. Crie um banco `createit`, rode os scripts 01, 02, 03 e 05 com o usuário `postgres` (o 04 e o 06 são só do Supabase) e use `DATABASE_URL=postgres://app_createit:<senha>@localhost:5432/createit`.
 
 ## Onde os conceitos de banco aparecem
 
