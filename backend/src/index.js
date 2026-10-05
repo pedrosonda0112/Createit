@@ -5,6 +5,7 @@ import authRoutes from './routes/auth.js';
 import postagensRoutes from './routes/postagens.js';
 import usuariosRoutes from './routes/usuarios.js';
 import geralRoutes from './routes/geral.js';
+import adminRoutes from './routes/admin.js';
 
 const app = express();
 app.use(cors());
@@ -14,6 +15,7 @@ app.get('/api/saude', (_req, res) => res.json({ ok: true }));
 app.use('/api/auth', authRoutes);
 app.use('/api/postagens', postagensRoutes);
 app.use('/api/usuarios', usuariosRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api', geralRoutes);
 
 // Erro não tratado: loga no servidor e devolve mensagem genérica

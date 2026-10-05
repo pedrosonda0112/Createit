@@ -7,6 +7,7 @@
 --   nova_postagem     { id_postagem, id_usuario }
 --   postagem_apagada  { id_postagem }
 --   novo_comentario   { id_postagem, id_comentario }
+--   comentario_apagado { id_postagem, id_comentario }
 --   contadores        { id_postagem, curtidas, comentarios }
 -- O aviso leva só ids e totais, nunca texto: o canal é público (qualquer um com
 -- a chave publishable pode ouvir). Quem recebe busca o resto pela API, com login.
@@ -62,6 +63,10 @@ BEGIN
     IF TG_OP = 'INSERT' THEN
         PERFORM fn_avisar_feed('novo_comentario',
             jsonb_build_object('id_postagem', NEW.id_postagem, 'id_comentario', NEW.id_comentario));
+    -- Apagado sozinho (moderação ou o autor); em cascata com a postagem, não precisa
+    ELSIF EXISTS (SELECT 1 FROM postagem WHERE id_postagem = OLD.id_postagem) THEN
+        PERFORM fn_avisar_feed('comentario_apagado',
+            jsonb_build_object('id_postagem', OLD.id_postagem, 'id_comentario', OLD.id_comentario));
     END IF;
     PERFORM fn_avisar_contadores(COALESCE(NEW.id_postagem, OLD.id_postagem));
     RETURN NULL;

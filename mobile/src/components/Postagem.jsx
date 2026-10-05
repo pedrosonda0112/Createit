@@ -32,6 +32,8 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
     }
   });
   const minha = post.id_usuario === usuario.id_usuario;
+  // Admin apaga a postagem de qualquer pessoa (moderação)
+  const podeApagar = minha || usuario.admin;
   const pontos = post.status_validacao === 'validada' ? post.pontos_gerados : 0;
   const abrirPerfil = () => router.push(`/perfil/${post.id_usuario}`);
 
@@ -53,7 +55,7 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
     try {
       const saldo = await api(`/postagens/${post.id_postagem}`, { method: 'DELETE' });
       atualizar(saldo);
-      avisar(pontos > 0 ? `Ação apagada. −${pontos} pts no seu saldo.` : 'Ação apagada.');
+      avisar(minha && pontos > 0 ? `Ação apagada. −${pontos} pts no seu saldo.` : 'Ação apagada.');
       // Quem mostra a lista pode tirar a postagem dela; senão, o card só some
       if (aoApagar) aoApagar(post.id_postagem);
       else setApagada(true);
@@ -63,9 +65,10 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
   }
 
   function confirmarApagar() {
+    const saldo = minha ? 'do seu saldo' : `do saldo de @${post.usuario} (até zerar)`;
     Alert.alert(
-      'Apagar esta ação?',
-      `${pontos > 0 ? `Os ${pontos} pts que ela deu saem do seu saldo. ` : ''}Curtidas e comentários também são apagados.`,
+      minha ? 'Apagar esta ação?' : `Apagar a ação de @${post.usuario}?`,
+      `${pontos > 0 ? `Os ${pontos} pts que ela deu saem ${saldo}. ` : ''}Curtidas e comentários também são apagados.`,
       [{ text: 'Cancelar', style: 'cancel' }, { text: 'Apagar', style: 'destructive', onPress: apagar }],
     );
   }
@@ -85,7 +88,7 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
           <Texto suave estilo={{ fontSize: 12, lineHeight: 16 }}>@{post.usuario} · {tempo(post.data_postagem)}</Texto>
         </Pressable>
         {post.pontos_gerados > 0 && <Texto estilo={s.ptsChip}>+{post.pontos_gerados}</Texto>}
-        {minha && (
+        {podeApagar && (
           <Pressable onPress={confirmarApagar} hitSlop={8} accessibilityLabel="Apagar ação" style={s.iconeBtn}>
             <Icone nome="lixeira" tamanho={18} cor={cor.textoSuave} />
           </Pressable>

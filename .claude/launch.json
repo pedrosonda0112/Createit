@@ -4,7 +4,7 @@
     {
       "name": "backend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "backend", "run", "dev"],
+      "runtimeArgs": ["--prefix", "backend", "run", "start"],
       "port": 3333
     },
     {

@@ -20,26 +20,62 @@ export default function Comentarios() {
   const [erro, setErro] = useState('');
   const [texto, setTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
+  // Moderação: quem curtiu (só admin vê) e qual comentário está pedindo confirmação para apagar
+  const [curtidas, setCurtidas] = useState(null);
+  const [apagando, setApagando] = useState(null);
   const campo = useRef(null);
+
+  const buscarCurtidas = () => api(`/postagens/${id}/curtidas`).then(setCurtidas).catch(() => {});
 
   useEffect(() => {
     setPost(null);
     setErro('');
+    setCurtidas(null);
     Promise.all([api(`/postagens/${id}`), api(`/postagens/${id}/comentarios`)])
       .then(([p, c]) => { setPost(p); setComentarios(c); })
       .catch((e) => setErro(e.message));
-  }, [id]);
+    if (usuario.admin) buscarCurtidas();
+  }, [id, usuario.admin]);
 
   // Comentário novo de outra pessoa: busca a lista de novo pela API (o aviso só traz o id)
   useAoVivo((evento, dados) => {
     if (dados.id_postagem !== Number(id)) return;
     if (evento === 'novo_comentario' && !comentarios.some((c) => c.id_comentario === dados.id_comentario)) {
       api(`/postagens/${id}/comentarios`).then(setComentarios).catch(() => {});
+    } else if (evento === 'comentario_apagado') {
+      setComentarios((lista) => lista.filter((c) => c.id_comentario !== dados.id_comentario));
+    } else if (evento === 'contadores' && curtidas && curtidas.length !== dados.curtidas) {
+      buscarCurtidas();
     } else if (evento === 'postagem_apagada') {
       setPost(null);
       setErro('Essa postagem foi apagada.');
     }
   });
+
+  // O autor apaga o próprio comentário; admin apaga qualquer um
+  async function apagarComentario(c) {
+    try {
+      const r = await api(`/postagens/${id}/comentarios/${c.id_comentario}`, { method: 'DELETE' });
+      setComentarios((lista) => lista.filter((x) => x.id_comentario !== c.id_comentario));
+      setPost((p) => p && { ...p, comentarios: r.comentarios });
+      avisar('Comentário apagado.');
+    } catch (err) {
+      avisar(err.message);
+    } finally {
+      setApagando(null);
+    }
+  }
+
+  async function tirarCurtida(u) {
+    try {
+      const r = await api(`/postagens/${id}/curtidas/${u.id_usuario}`, { method: 'DELETE' });
+      setCurtidas((lista) => lista.filter((x) => x.id_usuario !== u.id_usuario));
+      setPost((p) => p && { ...p, curtidas: r.curtidas, curtiu: u.id_usuario === usuario.id_usuario ? false : p.curtiu });
+      avisar(`Curtida de @${u.usuario} removida.`);
+    } catch (err) {
+      avisar(err.message);
+    }
+  }
 
   // Veio de outra tela do app: volta para ela. Abriu o link direto: vai para o feed.
   const voltar = () => (local.key !== 'default' ? navegar(-1) : navegar('/'));
@@ -103,10 +139,42 @@ export default function Comentarios() {
                     <span>@{c.usuario} · {tempo(c.data_comentario)}</span>
                   </div>
                   <p>{c.texto}</p>
+                  {apagando === c.id_comentario && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button type="button" className="btn btn-secundario btn-pequeno" onClick={() => setApagando(null)} autoFocus>Cancelar</button>
+                      <button type="button" className="btn btn-perigo btn-pequeno" onClick={() => apagarComentario(c)}>APAGAR</button>
+                    </div>
+                  )}
                 </div>
+                {(c.id_usuario === usuario.id_usuario || usuario.admin) && apagando !== c.id_comentario && (
+                  <button type="button" className="icone-btn comentario-apagar" onClick={() => setApagando(c.id_comentario)} aria-label="Apagar comentário">
+                    <Icone nome="lixeira" tamanho={16} />
+                  </button>
+                )}
               </article>
             ))}
           </section>
+
+          {/* Só admin: quem curtiu, com a opção de tirar a curtida */}
+          {usuario.admin && curtidas && curtidas.length > 0 && (
+            <section className="card lista-curtidas" aria-label="Curtidas">
+              <h2>Curtidas</h2>
+              {curtidas.map((u) => (
+                <div className="comentario" key={u.id_usuario} style={{ alignItems: 'center' }}>
+                  <Link to={`/perfil/${u.id_usuario}`}><Avatar nome={u.nome} tamanho={32} /></Link>
+                  <div className="comentario-corpo">
+                    <div className="comentario-topo">
+                      <Link to={`/perfil/${u.id_usuario}`}><strong>{u.nome}</strong></Link>
+                      <span>@{u.usuario} · {tempo(u.data_curtida)}</span>
+                    </div>
+                  </div>
+                  <button type="button" className="icone-btn comentario-apagar" style={{ alignSelf: 'center' }} onClick={() => tirarCurtida(u)} aria-label={`Tirar a curtida de @${u.usuario}`}>
+                    <Icone nome="x" tamanho={16} />
+                  </button>
+                </div>
+              ))}
+            </section>
+          )}
         </>)}
       </div>
     </div>

@@ -66,9 +66,17 @@ export default function Perfil({ id, comVoltar }) {
             <View style={{ borderRadius: 999, borderWidth: 4, borderColor: cor.superficie }}>
               <Avatar nome={p.nome} tamanho={80} />
             </View>
-            {meu
-              ? <Botao pequeno icone={<Icone nome="edit" tamanho={16} cor={cor.fundo} />} onPress={() => router.push('/editar-perfil')}>Editar perfil</Botao>
-              : <Botao pequeno tipo={p.eu_sigo ? 'secundario' : 'primario'} onPress={seguir}>{p.eu_sigo ? 'Seguindo' : 'Seguir'}</Botao>}
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {usuario.admin && (
+                <Botao pequeno tipo="secundario" icone={<Icone nome="escudo" tamanho={16} cor={cor.texto} />}
+                  onPress={() => router.push(meu ? '/admin' : `/admin/${p.id_usuario}`)}>
+                  {meu ? 'Admin' : 'Gerenciar'}
+                </Botao>
+              )}
+              {meu
+                ? <Botao pequeno icone={<Icone nome="edit" tamanho={16} cor={cor.fundo} />} onPress={() => router.push('/editar-perfil')}>Editar perfil</Botao>
+                : <Botao pequeno tipo={p.eu_sigo ? 'secundario' : 'primario'} onPress={seguir}>{p.eu_sigo ? 'Seguindo' : 'Seguir'}</Botao>}
+            </View>
           </View>
           <View style={{ gap: 6 }}>
             <Texto titulo estilo={{ fontSize: 22 }}>{p.nome}</Texto>

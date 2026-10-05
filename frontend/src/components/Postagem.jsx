@@ -32,6 +32,8 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
     }
   });
   const minha = post.id_usuario === usuario.id_usuario;
+  // Admin apaga a postagem de qualquer pessoa (moderação)
+  const podeApagar = minha || usuario.admin;
   const pontos = post.status_validacao === 'validada' ? post.pontos_gerados : 0;
 
   async function curtir() {
@@ -54,7 +56,7 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
     try {
       const saldo = await api(`/postagens/${post.id_postagem}`, { method: 'DELETE' });
       atualizar(saldo);
-      avisar?.(pontos > 0 ? `Ação apagada. −${pontos} pts no seu saldo.` : 'Ação apagada.');
+      avisar?.(minha && pontos > 0 ? `Ação apagada. −${pontos} pts no seu saldo.` : 'Ação apagada.');
       // Quem mostra a lista pode tirar a postagem dela; senão, o card só some
       if (aoApagar) aoApagar(post.id_postagem);
       else setApagada(true);
@@ -80,7 +82,7 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
           <span>@{post.usuario} · {tempo(post.data_postagem)}</span>
         </div>
         {post.pontos_gerados > 0 && <span className="pts-chip">+{post.pontos_gerados}</span>}
-        {minha && !confirmando && (
+        {podeApagar && !confirmando && (
           <button type="button" className="icone-btn post-apagar" onClick={() => setConfirmando(true)} aria-label="Apagar ação">
             <Icone nome="lixeira" tamanho={18} />
           </button>
@@ -88,11 +90,19 @@ export default function Postagem({ post, aoComentar, aoApagar }) {
       </div>
       {confirmando && (
         <div className="post-confirmar" role="group" aria-label="Confirmar exclusão">
-          <p>
-            <strong>Apagar esta ação?</strong>{' '}
-            {pontos > 0 && `Os ${pontos} pts que ela deu saem do seu saldo. `}
-            Curtidas e comentários também são apagados.
-          </p>
+          {minha ? (
+            <p>
+              <strong>Apagar esta ação?</strong>{' '}
+              {pontos > 0 && `Os ${pontos} pts que ela deu saem do seu saldo. `}
+              Curtidas e comentários também são apagados.
+            </p>
+          ) : (
+            <p>
+              <strong>Apagar a ação de @{post.usuario}?</strong>{' '}
+              {pontos > 0 && `Os ${pontos} pts que ela deu saem do saldo de @${post.usuario} (até zerar). `}
+              Curtidas e comentários também são apagados.
+            </p>
+          )}
           {erroApagar && <p className="erro" role="alert">{erroApagar}</p>}
           <div className="post-confirmar-botoes">
             <button type="button" className="btn btn-secundario btn-pequeno" onClick={cancelar} autoFocus>Cancelar</button>

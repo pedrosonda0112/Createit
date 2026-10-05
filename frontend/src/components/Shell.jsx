@@ -65,6 +65,9 @@ export default function Shell() {
               <Icone nome={i.icone} />{i.nome}
             </NavLink>
           ))}
+          {usuario.admin && (
+            <NavLink to="/admin" className={({ isActive }) => (isActive ? 'ativo' : '')}><Icone nome="escudo" />Admin</NavLink>
+          )}
           <button className="btn btn-primario" onClick={() => setRegistrando(true)}><Icone nome="plus" />REGISTRAR AÇÃO</button>
           <button className="menu-item sair" onClick={sair}><Icone nome="logout" />Sair</button>
         </nav>

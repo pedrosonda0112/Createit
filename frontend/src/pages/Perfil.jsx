@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useOutletContext, useParams } from 'react-router-dom';
+import { Link, useOutletContext, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { fmt, iconeCategoria, nomeNivel, PONTOS_POR_NIVEL, tempo } from '../util.js';
@@ -50,9 +50,16 @@ export default function Perfil() {
           <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: -48, gap: 12, flexWrap: 'wrap' }}>
               <span style={{ borderRadius: '50%', boxShadow: '0 0 0 4px var(--superficie)' }}><Avatar nome={p.nome} tamanho={96} /></span>
-              {meu
-                ? <button className="btn btn-primario btn-pequeno" onClick={() => setEditando(true)}><Icone nome="edit" tamanho={16} />Editar perfil</button>
-                : <button className={`btn btn-pequeno ${p.eu_sigo ? 'btn-secundario' : 'btn-primario'}`} onClick={seguir}>{p.eu_sigo ? 'Seguindo' : 'Seguir'}</button>}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {usuario.admin && (
+                  <Link className="btn btn-secundario btn-pequeno" to={meu ? '/admin' : `/admin?q=${encodeURIComponent(p.usuario)}`}>
+                    <Icone nome="escudo" tamanho={16} />{meu ? 'Painel admin' : 'Gerenciar'}
+                  </Link>
+                )}
+                {meu
+                  ? <button className="btn btn-primario btn-pequeno" onClick={() => setEditando(true)}><Icone nome="edit" tamanho={16} />Editar perfil</button>
+                  : <button className={`btn btn-pequeno ${p.eu_sigo ? 'btn-secundario' : 'btn-primario'}`} onClick={seguir}>{p.eu_sigo ? 'Seguindo' : 'Seguir'}</button>}
+              </div>
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { conectar, query } from '../db.js';
-import { auth } from '../middleware/auth.js';
+import { auth, ehAdmin } from '../middleware/auth.js';
 import { receberFoto } from '../middleware/foto.js';
 import { apagarFoto, enviarFoto, storageConfigurado } from '../storage.js';
 
@@ -80,27 +80,38 @@ r.get('/:id', auth, async (req, res) => {
   res.json(rows[0]);
 });
 
-// Apagar a própria postagem. O trigger trg_estornar_pontos (05_apagar_postagem.sql)
-// tira os pontos e as conquistas que ela deu; curtidas e comentários saem em cascata.
+// Apagar a própria postagem (ou qualquer uma, se for admin). O trigger trg_estornar_pontos
+// (05 e 07) tira os pontos e as conquistas que ela deu; curtidas e comentários saem em cascata.
+// Admin apaga em modo moderação: o saldo do autor cai só até zero, em vez de barrar.
 r.delete('/:id', auth, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ erro: 'Essa postagem não existe.' });
+  const admin = await ehAdmin(req.userId);
+  const client = await conectar();
+  let apagada;
   try {
-    const { rows } = await query(
-      `DELETE FROM postagem WHERE id_postagem = $1 AND id_usuario = $2 RETURNING url_foto`,
-      [id, req.userId]
+    await client.query('BEGIN');
+    if (admin) await client.query(`SET LOCAL createit.moderacao = 'on'`);
+    const { rows } = await client.query(
+      `DELETE FROM postagem WHERE id_postagem = $1 AND (id_usuario = $2 OR $3) RETURNING url_foto`,
+      [id, req.userId, admin]
     );
-    if (!rows[0]) return res.status(404).json({ erro: 'Essa postagem não existe ou não é sua.' });
-    if (rows[0].url_foto) apagarFoto(rows[0].url_foto).catch((err) => console.error(err));
-    const saldo = await query(`SELECT pontos_ecologicos, nivel FROM usuario WHERE id_usuario = $1`, [req.userId]);
-    res.json(saldo.rows[0]);
+    await client.query('COMMIT');
+    apagada = rows[0];
   } catch (e) {
+    await client.query('ROLLBACK');
     // CHECK (pontos_ecologicos >= 0): os pontos dessa ação já foram gastos
     if (e.code === '23514') {
       return res.status(409).json({ erro: 'Os pontos dessa ação já foram usados em resgates, então ela não pode ser apagada.' });
     }
     throw e;
+  } finally {
+    client.release();
   }
+  if (!apagada) return res.status(404).json({ erro: 'Essa postagem não existe ou não é sua.' });
+  if (apagada.url_foto) apagarFoto(apagada.url_foto).catch((err) => console.error(err));
+  const saldo = await query(`SELECT pontos_ecologicos, nivel FROM usuario WHERE id_usuario = $1`, [req.userId]);
+  res.json(saldo.rows[0]);
 });
 
 // Curtir / descurtir
@@ -112,6 +123,33 @@ r.post('/:id/curtir', auth, async (req, res) => {
   }
   const { rows } = await query(`SELECT count(*)::int AS curtidas FROM curtida WHERE id_postagem = $1`, [id]);
   res.json({ curtiu: del.rowCount === 0, curtidas: rows[0].curtidas });
+});
+
+// Quem curtiu (mais recentes primeiro)
+r.get('/:id/curtidas', auth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ erro: 'Essa postagem não existe.' });
+  const { rows } = await query(
+    `SELECT c.id_usuario, c.data_curtida, u.nome, u.usuario
+       FROM curtida c JOIN usuario u ON u.id_usuario = c.id_usuario
+      WHERE c.id_postagem = $1
+      ORDER BY c.data_curtida DESC`,
+    [id]
+  );
+  res.json(rows);
+});
+
+// Tirar a curtida de alguém (moderação; a própria sai pelo /curtir)
+r.delete('/:id/curtidas/:usuario', auth, async (req, res) => {
+  const id = Number(req.params.id);
+  const idUsuario = Number(req.params.usuario);
+  if (idUsuario !== req.userId && !(await ehAdmin(req.userId))) {
+    return res.status(403).json({ erro: 'Só administradores podem tirar a curtida de outra pessoa.' });
+  }
+  const { rowCount } = await query(`DELETE FROM curtida WHERE id_postagem = $1 AND id_usuario = $2`, [id, idUsuario]);
+  if (!rowCount) return res.status(404).json({ erro: 'Essa curtida não existe mais.' });
+  const { rows } = await query(`SELECT count(*)::int AS curtidas FROM curtida WHERE id_postagem = $1`, [id]);
+  res.json(rows[0]);
 });
 
 // Comentários da postagem, com o autor de cada um (mais recentes primeiro)
@@ -148,6 +186,21 @@ r.post('/:id/comentarios', auth, async (req, res) => {
     if (e.code === '23503') return res.status(404).json({ erro: 'Essa postagem não existe mais.' });
     throw e;
   }
+});
+
+// Apagar comentário: o autor apaga o seu; admin apaga qualquer um
+r.delete('/:id/comentarios/:comentario', auth, async (req, res) => {
+  const id = Number(req.params.id);
+  const idComentario = Number(req.params.comentario);
+  if (!Number.isInteger(id) || !Number.isInteger(idComentario)) return res.status(404).json({ erro: 'Esse comentário não existe.' });
+  const admin = await ehAdmin(req.userId);
+  const { rowCount } = await query(
+    `DELETE FROM comentario WHERE id_comentario = $1 AND id_postagem = $2 AND (id_usuario = $3 OR $4)`,
+    [idComentario, id, req.userId, admin]
+  );
+  if (!rowCount) return res.status(404).json({ erro: 'Esse comentário não existe ou não é seu.' });
+  const { rows } = await query(`SELECT count(*)::int AS comentarios FROM comentario WHERE id_postagem = $1`, [id]);
+  res.json(rows[0]);
 });
 
 export default r;

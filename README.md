@@ -14,7 +14,8 @@ create-it/
 │   ├── 03_seguranca.sql   perfis de acesso (GRANT/REVOKE)
 │   ├── 04_storage.sql     bucket de fotos no Supabase Storage
 │   ├── 05_apagar_postagem.sql  trigger que estorna pontos e conquistas ao apagar uma postagem
-│   └── 06_tempo_real.sql  triggers que avisam o site e o app em tempo real (Supabase Realtime)
+│   ├── 06_tempo_real.sql  triggers que avisam o site e o app em tempo real (Supabase Realtime)
+│   └── 07_admin.sql       administradores (moderação pelo site e pelo app)
 ├── backend/    API em Node.js + Express
 └── frontend/   app web em React + Vite
 ```
@@ -33,6 +34,7 @@ Precisa de **Node.js 20+** e de um projeto no **Supabase** (plano gratuito serve
    - `database/04_storage.sql`: cria o bucket `fotos` no Supabase Storage (fotos das ações)
    - `database/05_apagar_postagem.sql`: trigger que desfaz pontos e conquistas quando uma postagem é apagada. Não apaga dados, então dá para rodar num banco que já está em uso.
    - `database/06_tempo_real.sql`: triggers que avisam o site e o app quando entra postagem, curtida ou comentário (veja **Tempo real** abaixo). Também não apaga dados.
+   - `database/07_admin.sql`: cria a coluna `admin` dos usuários (veja **Administradores** abaixo). Também não apaga dados.
 3. Em **Project Settings > Database > Connection string**, copie a URI do **Session pooler**.
 
 As tabelas ficam no schema `createit`, e não no `public`. Isso é de propósito: o Supabase expõe o `public` na API REST dele, e aqui a API é o nosso back-end. O `03_seguranca.sql` ainda tira qualquer acesso dos papéis `anon` e `authenticated` do Supabase ao schema.
@@ -103,6 +105,23 @@ Como funciona: os triggers do `06_tempo_real.sql` chamam `realtime.send` e publi
 - O canal é público: basta a chave **publishable** (`sb_publishable_...`), que é feita para ficar no front-end. Ela não dá acesso às tabelas, porque o `anon` não enxerga o schema `createit`. Nunca use a **secret key** no front-end.
 - A API na Vercel não precisa de websocket: quem mantém a conexão é o Supabase.
 - Sem as variáveis `*_SUPABASE_*`, o site e o app funcionam normalmente, só não se atualizam sozinhos.
+
+### Administradores
+
+Quem tem `admin = true` modera pelo próprio site e app:
+
+- **Postagens:** a lixeira aparece em todas, não só nas suas. Os pontos que a postagem deu saem do saldo do autor até zerar (se ele já gastou em resgates, o saldo para em 0 em vez de barrar).
+- **Comentários:** lixeira em cada comentário (quem escreveu também pode apagar o seu).
+- **Curtidas:** na tela da postagem, a lista "Curtidas" (só admin vê) tem um X para tirar cada uma.
+- **Contas:** menu **Admin** no site (ou o botão **Admin** no seu perfil, no app) para buscar, editar nome, @, e-mail, cidade, bio, pontos, nível e acesso de admin, ou apagar a conta. No perfil de outra pessoa, o botão **Gerenciar** abre direto a conta dela.
+
+A API confere o admin no banco a cada pedido, então tirar o acesso de alguém vale na hora. Um admin não consegue tirar o próprio acesso nem apagar a própria conta pelo painel. O primeiro admin é criado pelo SQL Editor:
+
+```sql
+UPDATE createit.usuario SET admin = true WHERE email = 'voce@email.com';
+```
+
+Os outros podem ser promovidos pelo painel.
 
 ### Rodando com Postgres local (opcional)
 
