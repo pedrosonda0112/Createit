@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { conectar, query } from '../db.js';
+import { conectar, query, ERRO } from '../db.js';
 import { auth, soAdmin } from '../middleware/auth.js';
 import { apagarFoto } from '../storage.js';
 
@@ -14,9 +14,9 @@ r.get('/usuarios', async (req, res) => {
   const q = String(req.query.q || '').trim().replace(/^@/, '');
   const { rows } = await query(
     `SELECT ${CAMPOS},
-            (SELECT count(*)::int FROM postagem p WHERE p.id_usuario = u.id_usuario) AS postagens
+            (SELECT count(*) FROM postagem p WHERE p.id_usuario = u.id_usuario) AS postagens
        FROM usuario u
-      WHERE $1 = '' OR u.nome ILIKE '%' || $1 || '%' OR u.usuario ILIKE '%' || $1 || '%' OR u.email ILIKE '%' || $1 || '%'
+      WHERE $1 = '' OR u.nome LIKE CONCAT('%', $1, '%') OR u.usuario LIKE CONCAT('%', $1, '%') OR u.email LIKE CONCAT('%', $1, '%')
       ORDER BY u.admin DESC, u.data_cadastro DESC
       LIMIT 50`,
     [q]
@@ -59,17 +59,17 @@ r.put('/usuarios/:id', async (req, res) => {
   if (id === req.userId && !admin) return res.status(400).json({ erro: 'Você não pode tirar o seu próprio acesso de admin.' });
 
   try {
-    const { rows } = await query(
+    const upd = await query(
       `UPDATE usuario
           SET nome = $1, usuario = $2, email = $3, bio = $4, cidade = $5, pontos_ecologicos = $6, nivel = $7, admin = $8
-        WHERE id_usuario = $9
-        RETURNING ${CAMPOS}`,
+        WHERE id_usuario = $9`,
       [nome, usuario, email, bio || null, cidade || null, pontos, nivel, admin, id]
     );
-    if (!rows[0]) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+    if (!upd.rowCount) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+    const { rows } = await query(`SELECT ${CAMPOS} FROM usuario WHERE id_usuario = $1`, [id]);
     res.json(rows[0]);
   } catch (e) {
-    if (e.code === '23505') return res.status(409).json({ erro: 'Já existe outra conta com esse @ ou e-mail.' });
+    if (ERRO.duplicado(e)) return res.status(409).json({ erro: 'Já existe outra conta com esse @ ou e-mail.' });
     throw e;
   }
 });
@@ -85,8 +85,8 @@ r.delete('/usuarios/:id', async (req, res) => {
   let fotos;
   try {
     await client.query('BEGIN');
-    // Moderação: o estorno das postagens apagadas em cascata não esbarra no saldo
-    await client.query(`SET LOCAL createit.moderacao = 'on'`);
+    // No MySQL a cascata não dispara trigger, então o estorno nem roda aqui. A conta some junto.
+    await client.query(`SET @createit_moderacao = 'on'`);
     fotos = await client.query(`SELECT url_foto FROM postagem WHERE id_usuario = $1 AND url_foto IS NOT NULL`, [id]);
     const { rowCount } = await client.query(`DELETE FROM usuario WHERE id_usuario = $1`, [id]);
     await client.query('COMMIT');
@@ -95,6 +95,7 @@ r.delete('/usuarios/:id', async (req, res) => {
     await client.query('ROLLBACK');
     throw e;
   } finally {
+    await client.query('SET @createit_moderacao = NULL').catch(() => {});
     client.release();
   }
   // As fotos ficam no Storage, fora do banco: apaga depois do COMMIT

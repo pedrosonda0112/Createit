@@ -9,6 +9,7 @@
 -- Horários ficam em UTC (DATETIME), igual ao TIMESTAMPTZ do Postgres.
 -- =====================================================================
 
+SET NAMES utf8mb4;   -- garante os acentos mesmo se o cliente começar em outro charset
 DROP DATABASE IF EXISTS createit;
 CREATE DATABASE createit CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE createit;

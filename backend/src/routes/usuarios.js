@@ -9,9 +9,9 @@ r.get('/:id', auth, async (req, res) => {
   const id = Number(req.params.id);
   const { rows } = await query(
     `SELECT u.id_usuario, u.nome, u.usuario, u.bio, u.cidade, u.pontos_ecologicos, u.nivel,
-            (SELECT count(*)::int FROM postagem p WHERE p.id_usuario = u.id_usuario AND p.status_validacao = 'validada') AS acoes,
-            (SELECT count(*)::int FROM seguidor s WHERE s.id_seguido = u.id_usuario)  AS seguidores,
-            (SELECT count(*)::int FROM seguidor s WHERE s.id_seguidor = u.id_usuario) AS seguindo,
+            (SELECT count(*) FROM postagem p WHERE p.id_usuario = u.id_usuario AND p.status_validacao = 'validada') AS acoes,
+            (SELECT count(*) FROM seguidor s WHERE s.id_seguido = u.id_usuario)  AS seguidores,
+            (SELECT count(*) FROM seguidor s WHERE s.id_seguidor = u.id_usuario) AS seguindo,
             EXISTS (SELECT 1 FROM seguidor s WHERE s.id_seguidor = $2 AND s.id_seguido = u.id_usuario) AS eu_sigo
        FROM usuario u WHERE u.id_usuario = $1`,
     [id, req.userId]
@@ -21,7 +21,7 @@ r.get('/:id', auth, async (req, res) => {
   const [conquistas, impacto, historico, postagens] = await Promise.all([
     query(`SELECT c.*, uc.data_obtencao FROM conquista c
              LEFT JOIN usuario_conquista uc ON uc.id_conquista = c.id_conquista AND uc.id_usuario = $1
-            ORDER BY uc.data_obtencao NULLS LAST, c.id_conquista`, [id]),
+            ORDER BY (uc.data_obtencao IS NULL), uc.data_obtencao, c.id_conquista`, [id]),
     query(`SELECT * FROM vw_impacto_categoria WHERE id_usuario = $1 ORDER BY acoes DESC`, [id]),
     query(`SELECT * FROM (
              SELECT 'acao' AS tipo, conteudo AS descricao, pontos_gerados AS pontos, data_postagem AS data
@@ -34,7 +34,7 @@ r.get('/:id', auth, async (req, res) => {
              FROM vw_feed f WHERE f.id_usuario = $1 ORDER BY f.data_postagem DESC LIMIT 20`, [id, req.userId]),
   ]);
 
-  res.json({ ...rows[0], conquistas: conquistas.rows, impacto: impacto.rows, historico: historico.rows, postagens: postagens.rows });
+  res.json({ ...rows[0], eu_sigo: Boolean(rows[0].eu_sigo), conquistas: conquistas.rows, impacto: impacto.rows, historico: historico.rows, postagens: postagens.rows.map((p) => ({ ...p, curtiu: Boolean(p.curtiu) })) });
 });
 
 r.post('/:id/seguir', auth, async (req, res) => {

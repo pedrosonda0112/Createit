@@ -18,7 +18,7 @@ export function auth(req, res, next) {
 // tirar o admin de alguém vale na hora, sem esperar o login expirar.
 export async function ehAdmin(idUsuario) {
   const { rows } = await query('SELECT admin FROM usuario WHERE id_usuario = $1', [idUsuario]);
-  return rows[0]?.admin === true;
+  return Boolean(rows[0]?.admin);
 }
 
 // Usar depois do auth

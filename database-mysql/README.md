@@ -35,17 +35,20 @@ No Workbench, abra o arquivo e execute tudo (ele entende o `DELIMITER`). Num cli
 - **Segurança:** o MySQL não tem REVOKE parcial dentro de um GRANT de schema inteiro. Por isso o `papel_app` recebe GRANT tabela por tabela, sem escrita em `categoria_acao` e sem DELETE em `resgate`.
 - **Comparação de texto:** a collation `utf8mb4_unicode_ci` ignora maiúsculas e acentos. `Marina@x.com` e `marina@x.com` contam como o mesmo e-mail (no Postgres eram diferentes).
 
-## O que ainda precisa mudar no back-end (`backend/src`)
+## Back-end (`backend/src`): já convertido
 
-O back-end ainda fala PostgreSQL (`pg`). Para rodar em MySQL é preciso:
+A API agora usa `mysql2`. O `db.js` converte os `$1, $2` das consultas em `?`, abre o pool com SSL (o Aiven exige) e devolve `{ rows, rowCount, insertId }`, então as rotas mudaram pouco. O que foi trocado nas rotas:
 
-- trocar `pg` por `mysql2` e reescrever `db.js` (sem `search_path`; pool com `timezone: 'Z'`);
-- `$1, $2` → `?`, e `ILIKE` → `LIKE`;
-- `RETURNING id_postagem` → usar `insertId` do resultado;
-- `rows`/`rowCount` → o mysql2 devolve `[rows, fields]` e `affectedRows`;
-- `SELECT fn_resgatar($1,$2)` → `CALL sp_resgatar(?, ?)`, tratando o erro `ER_SIGNAL_EXCEPTION` (código 1644);
-- `count(*)::int`, `false AS curtiu` e `EXISTS (...)` em `SELECT` (booleanos voltam como 0/1);
-- `SET LOCAL createit.moderacao` → `SET @createit_moderacao`.
+- `RETURNING` → `INSERT`/`UPDATE` seguido de `SELECT` (usando `insertId`);
+- `ILIKE` → `LIKE` (a collation já ignora maiúsculas); `||` → `CONCAT`; `now() - interval` → `DATE_SUB(UTC_TIMESTAMP(), ...)`;
+- `NULLS LAST` → `ORDER BY (coluna IS NULL), coluna`;
+- `fn_resgatar` → `CALL sp_resgatar(?, ?)`; o erro de regra vem como `errno 1644`;
+- `SET LOCAL createit.moderacao` → `SET @createit_moderacao`, desligado no `finally` antes de devolver a conexão ao pool;
+- `EXISTS(...)` volta como 0/1 no MySQL, então as rotas convertem para `true/false` para o front-end e o app não perceberem a troca.
+
+Como rodar: em `backend/.env`, use `DATABASE_URL=mysql://usuario:senha@host:porta/createit` (veja `backend/.env.example`). As fotos continuam no Supabase Storage (variáveis `SUPABASE_*`, opcionais).
+
+O tempo real do feed (Supabase Realtime) não funciona com MySQL. O site e o app seguem normais, só não atualizam o feed sozinhos.
 
 ## Um aviso de segurança
 

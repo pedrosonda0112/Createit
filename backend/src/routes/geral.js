@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from '../db.js';
+import { query, ERRO } from '../db.js';
 import { auth } from '../middleware/auth.js';
 
 const r = Router();
@@ -18,9 +18,9 @@ r.get('/ranking', auth, async (_req, res) => {
 r.get('/desafios', auth, async (req, res) => {
   const { rows } = await query(
     `SELECT d.*, p.razao_social AS patrocinador, c.nome AS categoria,
-            (SELECT count(*)::int FROM postagem po
+            (SELECT count(*) FROM postagem po
               WHERE po.id_desafio = d.id_desafio AND po.id_usuario = $1 AND po.status_validacao = 'validada') AS progresso,
-            (SELECT count(DISTINCT po.id_usuario)::int FROM postagem po WHERE po.id_desafio = d.id_desafio) AS participantes
+            (SELECT count(DISTINCT po.id_usuario) FROM postagem po WHERE po.id_desafio = d.id_desafio) AS participantes
        FROM desafio d
        JOIN categoria_acao c ON c.id_categoria = d.id_categoria
        LEFT JOIN patrocinador p ON p.id_patrocinador = d.id_patrocinador
@@ -41,14 +41,14 @@ r.get('/recompensas', auth, async (_req, res) => {
   res.json(rows);
 });
 
-// Resgate: toda a regra está na função fn_resgatar (transação no banco)
+// Resgate: toda a regra está na procedure sp_resgatar (transação no banco)
 r.post('/recompensas/:id/resgatar', auth, async (req, res) => {
   try {
-    const { rows } = await query(`SELECT fn_resgatar($1, $2) AS codigo`, [req.userId, Number(req.params.id)]);
+    const { rows } = await query(`CALL sp_resgatar($1, $2)`, [req.userId, Number(req.params.id)]);
     const saldo = await query(`SELECT pontos_ecologicos FROM usuario WHERE id_usuario = $1`, [req.userId]);
     res.json({ codigo: rows[0].codigo, pontos_ecologicos: saldo.rows[0].pontos_ecologicos });
   } catch (e) {
-    if (e.code === 'P0001') return res.status(400).json({ erro: e.message });
+    if (ERRO.regra(e)) return res.status(400).json({ erro: e.sqlMessage || e.message });
     throw e;
   }
 });
@@ -70,13 +70,17 @@ r.get('/busca', auth, async (req, res) => {
   const [pessoas, acoes, recompensas] = await Promise.all([
     query(`SELECT u.id_usuario, u.nome, u.usuario, u.pontos_ecologicos,
                   EXISTS (SELECT 1 FROM seguidor s WHERE s.id_seguidor = $2 AND s.id_seguido = u.id_usuario) AS seguindo
-             FROM usuario u WHERE (u.nome ILIKE $1 OR u.usuario ILIKE $1) AND u.id_usuario <> $2 LIMIT 6`, [termo, req.userId]),
-    query(`SELECT *, false AS curtiu FROM vw_feed WHERE conteudo ILIKE $1 OR categoria ILIKE $1 ORDER BY data_postagem DESC LIMIT 6`, [termo]),
+             FROM usuario u WHERE (u.nome LIKE $1 OR u.usuario LIKE $1) AND u.id_usuario <> $2 LIMIT 6`, [termo, req.userId]),
+    query(`SELECT *, false AS curtiu FROM vw_feed WHERE conteudo LIKE $1 OR categoria LIKE $1 ORDER BY data_postagem DESC LIMIT 6`, [termo]),
     query(`SELECT r.*, p.razao_social AS patrocinador, p.localizacao FROM recompensa r
              JOIN patrocinador p ON p.id_patrocinador = r.id_patrocinador
-            WHERE r.titulo ILIKE $1 OR p.razao_social ILIKE $1 LIMIT 6`, [termo]),
+            WHERE r.titulo LIKE $1 OR p.razao_social LIKE $1 LIMIT 6`, [termo]),
   ]);
-  res.json({ pessoas: pessoas.rows, acoes: acoes.rows, recompensas: recompensas.rows });
+  res.json({
+    pessoas: pessoas.rows.map((p) => ({ ...p, seguindo: Boolean(p.seguindo) })),
+    acoes: acoes.rows.map((a) => ({ ...a, curtiu: Boolean(a.curtiu) })),
+    recompensas: recompensas.rows,
+  });
 });
 
 export default r;

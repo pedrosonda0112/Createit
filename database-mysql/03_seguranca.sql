@@ -4,6 +4,7 @@
 --
 -- >>> TROQUE AS SENHAS ABAIXO antes de rodar. Não deixe senha de verdade no GitHub. <<<
 -- =====================================================================
+SET NAMES utf8mb4;   -- garante os acentos mesmo se o cliente começar em outro charset
 USE createit;
 
 -- Papéis (grupos de permissão)

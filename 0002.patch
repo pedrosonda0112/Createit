@@ -1,0 +1,978 @@
+From 00b02df2be9a1c2f9c8cdc1ed9d43d2854d3d9f7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 18:55:13 -0300
+Subject: [PATCH 2/2] Converte o back-end da API para MySQL (mysql2)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- db.js: pool mysql2 com SSL automático fora do localhost, conversão de $n para ?
+  e interface compatível ({ rows, rowCount, insertId })
+- Rotas: RETURNING virou INSERT/UPDATE + SELECT, ILIKE/||/interval/NULLS LAST
+  trocados por equivalentes MySQL, resgate via CALL sp_resgatar, moderação via
+  variável de sessão @createit_moderacao
+- database-mysql: scripts com SET NAMES utf8mb4 e README atualizado
+- .env.example com formato mysql:// (Aiven), DB_SSL e DB_SSL_CA
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_015qVr68HVaF8RED5HhtFigw
+---
+ backend/.env.example            |  22 ++-
+ backend/package-lock.json       | 252 ++++++++++++++------------------
+ backend/package.json            |   2 +-
+ backend/src/db.js               | 103 +++++++++----
+ backend/src/middleware/auth.js  |   2 +-
+ backend/src/routes/admin.js     |  21 +--
+ backend/src/routes/auth.js      |  18 ++-
+ backend/src/routes/geral.js     |  24 +--
+ backend/src/routes/postagens.js |  51 ++++---
+ backend/src/routes/usuarios.js  |  10 +-
+ database-mysql/01_schema.sql    |   1 +
+ database-mysql/02_seed.sql      |   1 +
+ database-mysql/03_seguranca.sql |   1 +
+ database-mysql/README.md        |  21 +--
+ 14 files changed, 283 insertions(+), 246 deletions(-)
+
+diff --git a/backend/.env.example b/backend/.env.example
+index 81d6d5e..08e97ab 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -1,16 +1,26 @@
+ PORT=3333
+ 
+-# Supabase: Project Settings > Database > Connection string > "Session pooler".
+-# Use o usuário app_createit (criado no 03_seguranca.sql) no lugar de "postgres":
+-# o formato é app_createit.<id-do-projeto> e a senha é a que você definiu no script.
+-DATABASE_URL=postgresql://app_createit.xxxxxxxxxxxxxxxxxxxx:TroqueEstaSenha123@aws-0-sa-east-1.pooler.supabase.com:5432/postgres
++# MySQL 8. Formato: mysql://usuario:senha@host:porta/banco
++#
++# Aiven (nuvem): painel do serviço > Overview > "Service URI" (a porta NÃO é a 3306).
++# Troque o final (/defaultdb) por /createit e use o usuário app_createit criado no
++# database-mysql/03_seguranca.sql (ou o avnadmin, se não conseguir criar o usuário).
++# Se a senha tiver caracteres especiais (@ : / # ?), escreva-os em formato de URL (ex.: @ vira %40).
++DATABASE_URL=mysql://app_createit:TroqueEstaSenha123@mysql-xxxx-seu-projeto.aivencloud.com:12345/createit
+ 
+-# Para usar um Postgres local em vez do Supabase:
+-# DATABASE_URL=postgres://app_createit:TroqueEstaSenha123@localhost:5432/createit
++# MySQL local (rodar os scripts da pasta database-mysql com o usuário root):
++# DATABASE_URL=mysql://app_createit:TroqueEstaSenha123@localhost:3306/createit
++
++# SSL: ligado sozinho para qualquer host que não seja localhost (o Aiven exige).
++# Por padrão a conexão é criptografada mas não confere o certificado. Para conferir,
++# cole aqui o conteúdo do ca.pem do Aiven (em uma linha, com \n no lugar das quebras de linha):
++# DB_SSL_CA=-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----
++# DB_SSL=false   # só para desligar o SSL à força
+ 
+ JWT_SECRET=troque-por-uma-frase-grande-e-aleatoria
+ 
+ # Fotos das ações (Supabase Storage). Sem isso o app funciona, só não aceita foto.
++# O banco agora é o MySQL; o Supabase só guarda as fotos (bucket público "fotos").
+ # URL: Project Settings > Data API (https://<id-do-projeto>.supabase.co)
+ # Chave: Project Settings > API Keys > Secret key (ou a "service_role", na aba Legacy).
+ # Essa chave passa por cima de todas as permissões: nunca coloque no front-end.
+diff --git a/backend/package-lock.json b/backend/package-lock.json
+index 471d72b..9cf55b5 100644
+--- a/backend/package-lock.json
++++ b/backend/package-lock.json
+@@ -14,7 +14,17 @@
+         "express": "^5.1.0",
+         "jsonwebtoken": "^9.0.2",
+         "multer": "^2.4.0",
+-        "pg": "^8.13.1"
++        "mysql2": "^3.14.0"
++      }
++    },
++    "node_modules/@types/node": {
++      "version": "26.6.6",
++      "resolved": "https://registry.npmjs.org/@types/node/-/node-26.6.6.tgz",
++      "integrity": "sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==",
++      "license": "MIT",
++      "peer": true,
++      "dependencies": {
++        "undici-types": "~8.9.0"
+       }
+     },
+     "node_modules/accepts": {
+@@ -36,6 +46,15 @@
+       "integrity": "sha512-klpgFSWLW1ZEs8svjfb7g4qWY0YS5imI82dTg+QahUvJ8YqAY0P10Uk8tTyh9ZGuYEZEMaeJYCF5BFuX552hsw==",
+       "license": "MIT"
+     },
++    "node_modules/aws-ssl-profiles": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/aws-ssl-profiles/-/aws-ssl-profiles-1.1.2.tgz",
++      "integrity": "sha512-NZKeq9AfyQvEeNlN0zSYAaWrmBffJh3IELMZfRpJVWgrpEbtEpnjvzqBPf+mxoI287JohRDoa+/nsfqqiZmF6g==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 6.0.0"
++      }
++    },
+     "node_modules/bcryptjs": {
+       "version": "2.4.3",
+       "resolved": "https://registry.npmjs.org/bcryptjs/-/bcryptjs-2.4.3.tgz",
+@@ -403,6 +422,15 @@
+         "url": "https://github.com/sponsors/ljharb"
+       }
+     },
++    "node_modules/generate-function": {
++      "version": "2.3.1",
++      "resolved": "https://registry.npmjs.org/generate-function/-/generate-function-2.3.1.tgz",
++      "integrity": "sha512-eeB5GfMNeevm/GRYq20ShmsaGcmI81kIX2K9XQx5miC8KdHaC6Jm0qQ8ZNeGOi7wYB8OsdxKs+Y2oVuTFuVwKQ==",
++      "license": "MIT",
++      "dependencies": {
++        "is-property": "^1.0.2"
++      }
++    },
+     "node_modules/get-intrinsic": {
+       "version": "1.3.0",
+       "resolved": "https://registry.npmjs.org/get-intrinsic/-/get-intrinsic-1.3.0.tgz",
+@@ -533,6 +561,12 @@
+       "integrity": "sha512-hvpoI6korhJMnej285dSg6nu1+e6uxs7zG3BYAm5byqDsgJNWwxzM6z6iZiAgQR4TJ30JmBTOwqZUw3WlyH3AQ==",
+       "license": "MIT"
+     },
++    "node_modules/is-property": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/is-property/-/is-property-1.0.2.tgz",
++      "integrity": "sha512-Ks/IoX00TtClbGQr4TWXemAnktAQvYB7HzcCxDGqEZU6oCmb2INHuOoKxbtR+HFkmYWBKv/dOZtGRiAjDhj92g==",
++      "license": "MIT"
++    },
+     "node_modules/jsonwebtoken": {
+       "version": "9.0.3",
+       "resolved": "https://registry.npmjs.org/jsonwebtoken/-/jsonwebtoken-9.0.3.tgz",
+@@ -618,6 +652,27 @@
+       "integrity": "sha512-Sb487aTOCr9drQVL8pIxOzVhafOjZN9UU54hiN8PU3uAiSV7lx1yYNpbNmex2PK6dSJoNTSJUUswT651yww3Mg==",
+       "license": "MIT"
+     },
++    "node_modules/long": {
++      "version": "5.3.2",
++      "resolved": "https://registry.npmjs.org/long/-/long-5.3.2.tgz",
++      "integrity": "sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==",
++      "license": "Apache-2.0"
++    },
++    "node_modules/lru.min": {
++      "version": "1.1.5",
++      "resolved": "https://registry.npmjs.org/lru.min/-/lru.min-1.1.5.tgz",
++      "integrity": "sha512-5J9ysMYUpYIg9RF2vJpy9SinEmSviFSe0GyPpCQ4L5QSkLAgeLXlTAOu2ZwWUU5m+0SBl6gUU1R1ZQB3aKypfA==",
++      "license": "MIT",
++      "engines": {
++        "bun": ">=1.0.0",
++        "deno": ">=1.30.0",
++        "node": ">=8.0.0"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/sponsors/wellwelwel"
++      }
++    },
+     "node_modules/math-intrinsics": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmjs.org/math-intrinsics/-/math-intrinsics-1.1.0.tgz",
+@@ -744,6 +799,39 @@
+         "node": ">= 0.6"
+       }
+     },
++    "node_modules/mysql2": {
++      "version": "3.24.6",
++      "resolved": "https://registry.npmjs.org/mysql2/-/mysql2-3.24.6.tgz",
++      "integrity": "sha512-enu73KhbAua2L3dIxjc6qg6ZJ7H3pt1BImZASWNWY5xSsmJ1ZuUPULTDGXgmJbI61vb+nJAG19IZclIq19UidQ==",
++      "license": "MIT",
++      "dependencies": {
++        "aws-ssl-profiles": "^1.1.2",
++        "generate-function": "^2.3.1",
++        "iconv-lite": "^0.7.3",
++        "long": "^5.3.2",
++        "lru.min": "^1.1.4",
++        "named-placeholders": "^1.1.6",
++        "sql-escaper": "^1.5.1"
++      },
++      "engines": {
++        "node": ">= 8.0"
++      },
++      "peerDependencies": {
++        "@types/node": ">= 8"
++      }
++    },
++    "node_modules/named-placeholders": {
++      "version": "1.1.6",
++      "resolved": "https://registry.npmjs.org/named-placeholders/-/named-placeholders-1.1.6.tgz",
++      "integrity": "sha512-Tz09sEL2EEuv5fFowm419c1+a/jSMiBjI9gHxVLrVdbUkkNUUfjsVYs9pVZu5oCon/kmRh9TfLEObFtkVxmY0w==",
++      "license": "MIT",
++      "dependencies": {
++        "lru.min": "^1.1.0"
++      },
++      "engines": {
++        "node": ">=8.0.0"
++      }
++    },
+     "node_modules/negotiator": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmjs.org/negotiator/-/negotiator-1.1.0.tgz",
+@@ -834,134 +922,6 @@
+         "url": "https://opencollective.com/express"
+       }
+     },
+-    "node_modules/pg": {
+-      "version": "8.23.0",
+-      "resolved": "https://registry.npmjs.org/pg/-/pg-8.23.0.tgz",
+-      "integrity": "sha512-Ip2EQCngowJLGOfCwkFhPXU7/ljlhn6Rxlmy4XYfL2Y+vyRM59+8uR2xqRWKdYmbXmxCFOAmKxBuSUCdF34qLg==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "pg-connection-string": "^2.14.0",
+-        "pg-pool": "^3.14.0",
+-        "pg-protocol": "^1.16.0",
+-        "pg-types": "2.2.0",
+-        "pgpass": "1.0.5"
+-      },
+-      "engines": {
+-        "node": ">= 16.0.0"
+-      },
+-      "optionalDependencies": {
+-        "pg-cloudflare": "^1.4.0"
+-      },
+-      "peerDependencies": {
+-        "pg-native": ">=3.0.1"
+-      },
+-      "peerDependenciesMeta": {
+-        "pg-native": {
+-          "optional": true
+-        }
+-      }
+-    },
+-    "node_modules/pg-cloudflare": {
+-      "version": "1.4.0",
+-      "resolved": "https://registry.npmjs.org/pg-cloudflare/-/pg-cloudflare-1.4.0.tgz",
+-      "integrity": "sha512-Vo7z/6rrQYxpNRylp4Tlob2elzbh+N/MOQbxFVWCxS7oEx6jF53GTJFxK2WWpKuBRkmiin4Mt+xofFDjx09R0A==",
+-      "license": "MIT",
+-      "optional": true
+-    },
+-    "node_modules/pg-connection-string": {
+-      "version": "2.14.0",
+-      "resolved": "https://registry.npmjs.org/pg-connection-string/-/pg-connection-string-2.14.0.tgz",
+-      "integrity": "sha512-XwWDGcLRGCXAR8F/AM5bG7Q+A3Wm2s6QeEjlOKZLlH3UYcguiqCWKyWXVag5TLTIjR7oOJUY8kcADaZgWPyLeg==",
+-      "license": "MIT"
+-    },
+-    "node_modules/pg-int8": {
+-      "version": "1.0.1",
+-      "resolved": "https://registry.npmjs.org/pg-int8/-/pg-int8-1.0.1.tgz",
+-      "integrity": "sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw==",
+-      "license": "ISC",
+-      "engines": {
+-        "node": ">=4.0.0"
+-      }
+-    },
+-    "node_modules/pg-pool": {
+-      "version": "3.14.0",
+-      "resolved": "https://registry.npmjs.org/pg-pool/-/pg-pool-3.14.0.tgz",
+-      "integrity": "sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw==",
+-      "license": "MIT",
+-      "peerDependencies": {
+-        "pg": ">=8.0"
+-      }
+-    },
+-    "node_modules/pg-protocol": {
+-      "version": "1.16.0",
+-      "resolved": "https://registry.npmjs.org/pg-protocol/-/pg-protocol-1.16.0.tgz",
+-      "integrity": "sha512-sILXutLVjCLjcDuOmvhX5e2Z4cS5qG/6Bu3VkpFwdf/633ElGLpEh9bgmuI5I4sqKqkifQiGyiCcx1HdtrK7tg==",
+-      "license": "MIT"
+-    },
+-    "node_modules/pg-types": {
+-      "version": "2.2.0",
+-      "resolved": "https://registry.npmjs.org/pg-types/-/pg-types-2.2.0.tgz",
+-      "integrity": "sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "pg-int8": "1.0.1",
+-        "postgres-array": "~2.0.0",
+-        "postgres-bytea": "~1.0.0",
+-        "postgres-date": "~1.0.4",
+-        "postgres-interval": "^1.1.0"
+-      },
+-      "engines": {
+-        "node": ">=4"
+-      }
+-    },
+-    "node_modules/pgpass": {
+-      "version": "1.0.5",
+-      "resolved": "https://registry.npmjs.org/pgpass/-/pgpass-1.0.5.tgz",
+-      "integrity": "sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "split2": "^4.1.0"
+-      }
+-    },
+-    "node_modules/postgres-array": {
+-      "version": "2.0.0",
+-      "resolved": "https://registry.npmjs.org/postgres-array/-/postgres-array-2.0.0.tgz",
+-      "integrity": "sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==",
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=4"
+-      }
+-    },
+-    "node_modules/postgres-bytea": {
+-      "version": "1.0.1",
+-      "resolved": "https://registry.npmjs.org/postgres-bytea/-/postgres-bytea-1.0.1.tgz",
+-      "integrity": "sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ==",
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=0.10.0"
+-      }
+-    },
+-    "node_modules/postgres-date": {
+-      "version": "1.0.7",
+-      "resolved": "https://registry.npmjs.org/postgres-date/-/postgres-date-1.0.7.tgz",
+-      "integrity": "sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q==",
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=0.10.0"
+-      }
+-    },
+-    "node_modules/postgres-interval": {
+-      "version": "1.2.0",
+-      "resolved": "https://registry.npmjs.org/postgres-interval/-/postgres-interval-1.2.0.tgz",
+-      "integrity": "sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==",
+-      "license": "MIT",
+-      "dependencies": {
+-        "xtend": "^4.0.0"
+-      },
+-      "engines": {
+-        "node": ">=0.10.0"
+-      }
+-    },
+     "node_modules/proxy-addr": {
+       "version": "2.0.8",
+       "resolved": "https://registry.npmjs.org/proxy-addr/-/proxy-addr-2.0.8.tgz",
+@@ -1200,13 +1160,19 @@
+         "url": "https://github.com/sponsors/ljharb"
+       }
+     },
+-    "node_modules/split2": {
+-      "version": "4.2.0",
+-      "resolved": "https://registry.npmjs.org/split2/-/split2-4.2.0.tgz",
+-      "integrity": "sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==",
+-      "license": "ISC",
++    "node_modules/sql-escaper": {
++      "version": "1.5.2",
++      "resolved": "https://registry.npmjs.org/sql-escaper/-/sql-escaper-1.5.2.tgz",
++      "integrity": "sha512-6CKD38c31SENivxOADeMNLdukOnUxUcflKtzVWzace7Riv1v7cAEym5Cx9Q7gYZ3ezIJI7ZpqecQq8cqNeSSFg==",
++      "license": "MIT",
+       "engines": {
+-        "node": ">= 10.x"
++        "bun": ">=1.0.0",
++        "deno": ">=2.0.0",
++        "node": ">=12.0.0"
++      },
++      "funding": {
++        "type": "github",
++        "url": "https://github.com/mysqljs/sql-escaper?sponsor=1"
+       }
+     },
+     "node_modules/statuses": {
+@@ -1266,6 +1232,13 @@
+         "url": "https://opencollective.com/express"
+       }
+     },
++    "node_modules/undici-types": {
++      "version": "8.9.0",
++      "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-8.9.0.tgz",
++      "integrity": "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==",
++      "license": "MIT",
++      "peer": true
++    },
+     "node_modules/unpipe": {
+       "version": "1.0.0",
+       "resolved": "https://registry.npmjs.org/unpipe/-/unpipe-1.0.0.tgz",
+@@ -1289,15 +1262,6 @@
+       "resolved": "https://registry.npmjs.org/wrappy/-/wrappy-1.0.2.tgz",
+       "integrity": "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==",
+       "license": "ISC"
+-    },
+-    "node_modules/xtend": {
+-      "version": "4.0.2",
+-      "resolved": "https://registry.npmjs.org/xtend/-/xtend-4.0.2.tgz",
+-      "integrity": "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==",
+-      "license": "MIT",
+-      "engines": {
+-        "node": ">=0.4"
+-      }
+     }
+   }
+ }
+diff --git a/backend/package.json b/backend/package.json
+index 5b0358e..2c6a769 100644
+--- a/backend/package.json
++++ b/backend/package.json
+@@ -14,6 +14,6 @@
+     "express": "^5.1.0",
+     "jsonwebtoken": "^9.0.2",
+     "multer": "^2.4.0",
+-    "pg": "^8.13.1"
++    "mysql2": "^3.14.0"
+   }
+ }
+diff --git a/backend/src/db.js b/backend/src/db.js
+index b4b3c78..63615d2 100644
+--- a/backend/src/db.js
++++ b/backend/src/db.js
+@@ -1,38 +1,83 @@
+-import pg from 'pg';
++import mysql from 'mysql2/promise';
+ 
+-const url = process.env.DATABASE_URL || '';
+-// O Supabase exige conexão com SSL; no Postgres local não precisa
+-const usarSsl = process.env.DB_SSL === 'true' || url.includes('supabase.co') || url.includes('supabase.com');
++// DATABASE_URL no formato mysql://usuario:senha@host:porta/banco
++// (Aiven: a porta não é a 3306; copie o "Service URI" do painel e troque o banco para createit)
++const url = new URL(process.env.DATABASE_URL || 'mysql://localhost:3306/createit');
++const local = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
++// Bancos na nuvem (Aiven etc.) exigem SSL; no MySQL local não precisa.
++// Com DB_SSL_CA (conteúdo do ca.pem) a conexão também confere o certificado do servidor.
++const usarSsl = process.env.DB_SSL ? process.env.DB_SSL === 'true' : !local;
++const ssl = !usarSsl
++  ? undefined
++  : process.env.DB_SSL_CA
++    ? { ca: process.env.DB_SSL_CA.replace(/\\n/g, '\n'), rejectUnauthorized: true }
++    : { rejectUnauthorized: false };
+ 
+-export const pool = new pg.Pool({
+-  connectionString: url,
+-  ssl: usarSsl ? { rejectUnauthorized: false } : false,
+-  max: 10,
++export const pool = mysql.createPool({
++  host: url.hostname,
++  port: Number(url.port) || 3306,
++  user: decodeURIComponent(url.username),
++  password: decodeURIComponent(url.password),
++  database: url.pathname.replace(/^\//, '') || 'createit',
++  ssl,
++  charset: 'utf8mb4',
++  timezone: 'Z',                       // os DATETIME ficam em UTC
++  connectionLimit: 5,
++  flags: ['+FOUND_ROWS'],              // rowCount = linhas encontradas, como no Postgres
++  // BOOLEAN do MySQL é TINYINT(1): devolve true/false para o front-end
++  typeCast(field, next) {
++    if (field.type === 'TINY' && field.length === 1) {
++      const v = field.string();
++      return v === null ? null : v === '1';
++    }
++    return next();
++  },
+ });
+ 
+-// As tabelas ficam no schema "createit". Cada conexão nova recebe
+-// "SET search_path" uma vez antes de ser usada, seja qual for o usuário.
+-const prontas = new WeakSet();
++// O código das rotas escreve $1, $2... (como no Postgres). Aqui vira "?" e os parâmetros
++// são repetidos na ordem em que aparecem, porque o mesmo $n pode ser usado mais de uma vez.
++function converter(sql, params = []) {
++  const valores = [];
++  const texto = sql.replace(/\$(\d+)/g, (_, n) => {
++    valores.push(params[Number(n) - 1]);
++    return '?';
++  });
++  return [texto, valores];
++}
+ 
+-export async function conectar() {
+-  const client = await pool.connect();
+-  if (!prontas.has(client)) {
+-    try {
+-      await client.query('SET search_path TO createit, public');
+-      prontas.add(client);
+-    } catch (e) {
+-      client.release(e);
+-      throw e;
+-    }
++// Devolve { rows, rowCount, insertId } para qualquer tipo de comando
++function resultado(r) {
++  if (Array.isArray(r)) {
++    // CALL devolve [linhas, cabeçalho]; SELECT devolve só as linhas
++    const rows = Array.isArray(r[0]) ? r[0] : r;
++    return { rows, rowCount: rows.length, insertId: 0 };
+   }
+-  return client;
++  return { rows: [], rowCount: r.affectedRows, insertId: r.insertId };
+ }
+ 
+-export async function query(text, params) {
+-  const client = await conectar();
+-  try {
+-    return await client.query(text, params);
+-  } finally {
+-    client.release();
+-  }
++// Conexão própria para transação (BEGIN / COMMIT / ROLLBACK). Lembre de chamar release().
++export async function conectar() {
++  const conn = await pool.getConnection();
++  return {
++    async query(sql, params) {
++      const [texto, valores] = converter(sql, params);
++      const [r] = await conn.query(texto, valores);
++      return resultado(r);
++    },
++    release: () => conn.release(),
++  };
++}
++
++export async function query(sql, params) {
++  const [texto, valores] = converter(sql, params);
++  const [r] = await pool.query(texto, valores);
++  return resultado(r);
+ }
++
++// Códigos de erro do MySQL/MariaDB usados nas rotas
++export const ERRO = {
++  duplicado: (e) => e.errno === 1062,                       // UNIQUE
++  checkViolado: (e) => e.errno === 3819 || e.errno === 4025, // CHECK (MySQL 8 / MariaDB)
++  fkViolada: (e) => e.errno === 1452,                       // FOREIGN KEY
++  regra: (e) => e.errno === 1644,                           // SIGNAL da sp_resgatar
++};
+diff --git a/backend/src/middleware/auth.js b/backend/src/middleware/auth.js
+index 72100c6..ac791ae 100644
+--- a/backend/src/middleware/auth.js
++++ b/backend/src/middleware/auth.js
+@@ -18,7 +18,7 @@ export function auth(req, res, next) {
+ // tirar o admin de alguém vale na hora, sem esperar o login expirar.
+ export async function ehAdmin(idUsuario) {
+   const { rows } = await query('SELECT admin FROM usuario WHERE id_usuario = $1', [idUsuario]);
+-  return rows[0]?.admin === true;
++  return Boolean(rows[0]?.admin);
+ }
+ 
+ // Usar depois do auth
+diff --git a/backend/src/routes/admin.js b/backend/src/routes/admin.js
+index 0fd1f02..bc896ec 100644
+--- a/backend/src/routes/admin.js
++++ b/backend/src/routes/admin.js
+@@ -1,5 +1,5 @@
+ import { Router } from 'express';
+-import { conectar, query } from '../db.js';
++import { conectar, query, ERRO } from '../db.js';
+ import { auth, soAdmin } from '../middleware/auth.js';
+ import { apagarFoto } from '../storage.js';
+ 
+@@ -14,9 +14,9 @@ r.get('/usuarios', async (req, res) => {
+   const q = String(req.query.q || '').trim().replace(/^@/, '');
+   const { rows } = await query(
+     `SELECT ${CAMPOS},
+-            (SELECT count(*)::int FROM postagem p WHERE p.id_usuario = u.id_usuario) AS postagens
++            (SELECT count(*) FROM postagem p WHERE p.id_usuario = u.id_usuario) AS postagens
+        FROM usuario u
+-      WHERE $1 = '' OR u.nome ILIKE '%' || $1 || '%' OR u.usuario ILIKE '%' || $1 || '%' OR u.email ILIKE '%' || $1 || '%'
++      WHERE $1 = '' OR u.nome LIKE CONCAT('%', $1, '%') OR u.usuario LIKE CONCAT('%', $1, '%') OR u.email LIKE CONCAT('%', $1, '%')
+       ORDER BY u.admin DESC, u.data_cadastro DESC
+       LIMIT 50`,
+     [q]
+@@ -59,17 +59,17 @@ r.put('/usuarios/:id', async (req, res) => {
+   if (id === req.userId && !admin) return res.status(400).json({ erro: 'Você não pode tirar o seu próprio acesso de admin.' });
+ 
+   try {
+-    const { rows } = await query(
++    const upd = await query(
+       `UPDATE usuario
+           SET nome = $1, usuario = $2, email = $3, bio = $4, cidade = $5, pontos_ecologicos = $6, nivel = $7, admin = $8
+-        WHERE id_usuario = $9
+-        RETURNING ${CAMPOS}`,
++        WHERE id_usuario = $9`,
+       [nome, usuario, email, bio || null, cidade || null, pontos, nivel, admin, id]
+     );
+-    if (!rows[0]) return res.status(404).json({ erro: 'Usuário não encontrado.' });
++    if (!upd.rowCount) return res.status(404).json({ erro: 'Usuário não encontrado.' });
++    const { rows } = await query(`SELECT ${CAMPOS} FROM usuario WHERE id_usuario = $1`, [id]);
+     res.json(rows[0]);
+   } catch (e) {
+-    if (e.code === '23505') return res.status(409).json({ erro: 'Já existe outra conta com esse @ ou e-mail.' });
++    if (ERRO.duplicado(e)) return res.status(409).json({ erro: 'Já existe outra conta com esse @ ou e-mail.' });
+     throw e;
+   }
+ });
+@@ -85,8 +85,8 @@ r.delete('/usuarios/:id', async (req, res) => {
+   let fotos;
+   try {
+     await client.query('BEGIN');
+-    // Moderação: o estorno das postagens apagadas em cascata não esbarra no saldo
+-    await client.query(`SET LOCAL createit.moderacao = 'on'`);
++    // No MySQL a cascata não dispara trigger, então o estorno nem roda aqui. A conta some junto.
++    await client.query(`SET @createit_moderacao = 'on'`);
+     fotos = await client.query(`SELECT url_foto FROM postagem WHERE id_usuario = $1 AND url_foto IS NOT NULL`, [id]);
+     const { rowCount } = await client.query(`DELETE FROM usuario WHERE id_usuario = $1`, [id]);
+     await client.query('COMMIT');
+@@ -95,6 +95,7 @@ r.delete('/usuarios/:id', async (req, res) => {
+     await client.query('ROLLBACK');
+     throw e;
+   } finally {
++    await client.query('SET @createit_moderacao = NULL').catch(() => {});
+     client.release();
+   }
+   // As fotos ficam no Storage, fora do banco: apaga depois do COMMIT
+diff --git a/backend/src/routes/auth.js b/backend/src/routes/auth.js
+index 7a66b56..67ac597 100644
+--- a/backend/src/routes/auth.js
++++ b/backend/src/routes/auth.js
+@@ -1,7 +1,7 @@
+ import { Router } from 'express';
+ import bcrypt from 'bcryptjs';
+ import jwt from 'jsonwebtoken';
+-import { query } from '../db.js';
++import { query, ERRO } from '../db.js';
+ import { auth } from '../middleware/auth.js';
+ 
+ const r = Router();
+@@ -19,14 +19,15 @@ r.post('/cadastro', async (req, res) => {
+   const usuario = `${base}${Math.floor(Math.random() * 900 + 100)}`;
+   const hash = await bcrypt.hash(senha, 10);
+   try {
+-    const { rows } = await query(
++    const novo = await query(
+       `INSERT INTO usuario (nome, cpf, email, senha_hash, usuario)
+-       VALUES ($1, $2, $3, $4, $5) RETURNING ${PUBLICO}`,
++       VALUES ($1, $2, $3, $4, $5)`,
+       [nome.trim(), cpfLimpo, email.trim().toLowerCase(), hash, usuario]
+     );
++    const { rows } = await query(`SELECT ${PUBLICO} FROM usuario WHERE id_usuario = $1`, [novo.insertId]);
+     res.status(201).json({ token: gerarToken(rows[0].id_usuario), usuario: rows[0] });
+   } catch (e) {
+-    if (e.code === '23505') return res.status(409).json({ erro: 'Já existe uma conta com esse e-mail ou CPF.' });
++    if (ERRO.duplicado(e)) return res.status(409).json({ erro: 'Já existe uma conta com esse e-mail ou CPF.' });
+     throw e;
+   }
+ });
+@@ -85,15 +86,16 @@ r.put('/eu', auth, async (req, res) => {
+   if (cidade.length > 80) return res.status(400).json({ erro: 'A cidade pode ter no máximo 80 caracteres.' });
+ 
+   try {
+-    const { rows } = await query(
++    const upd = await query(
+       `UPDATE usuario SET nome = $1, usuario = $2, bio = $3, cidade = $4
+-        WHERE id_usuario = $5 RETURNING ${PUBLICO}`,
++        WHERE id_usuario = $5`,
+       [nome, usuario, bio || null, cidade || null, req.userId]
+     );
+-    if (!rows[0]) return res.status(404).json({ erro: 'Usuário não encontrado.' });
++    if (!upd.rowCount) return res.status(404).json({ erro: 'Usuário não encontrado.' });
++    const { rows } = await query(`SELECT ${PUBLICO} FROM usuario WHERE id_usuario = $1`, [req.userId]);
+     res.json(rows[0]);
+   } catch (e) {
+-    if (e.code === '23505') return res.status(409).json({ erro: `O @${usuario} já está em uso. Escolha outro.` });
++    if (ERRO.duplicado(e)) return res.status(409).json({ erro: `O @${usuario} já está em uso. Escolha outro.` });
+     throw e;
+   }
+ });
+diff --git a/backend/src/routes/geral.js b/backend/src/routes/geral.js
+index badc677..e6ec9d8 100644
+--- a/backend/src/routes/geral.js
++++ b/backend/src/routes/geral.js
+@@ -1,5 +1,5 @@
+ import { Router } from 'express';
+-import { query } from '../db.js';
++import { query, ERRO } from '../db.js';
+ import { auth } from '../middleware/auth.js';
+ 
+ const r = Router();
+@@ -18,9 +18,9 @@ r.get('/ranking', auth, async (_req, res) => {
+ r.get('/desafios', auth, async (req, res) => {
+   const { rows } = await query(
+     `SELECT d.*, p.razao_social AS patrocinador, c.nome AS categoria,
+-            (SELECT count(*)::int FROM postagem po
++            (SELECT count(*) FROM postagem po
+               WHERE po.id_desafio = d.id_desafio AND po.id_usuario = $1 AND po.status_validacao = 'validada') AS progresso,
+-            (SELECT count(DISTINCT po.id_usuario)::int FROM postagem po WHERE po.id_desafio = d.id_desafio) AS participantes
++            (SELECT count(DISTINCT po.id_usuario) FROM postagem po WHERE po.id_desafio = d.id_desafio) AS participantes
+        FROM desafio d
+        JOIN categoria_acao c ON c.id_categoria = d.id_categoria
+        LEFT JOIN patrocinador p ON p.id_patrocinador = d.id_patrocinador
+@@ -41,14 +41,14 @@ r.get('/recompensas', auth, async (_req, res) => {
+   res.json(rows);
+ });
+ 
+-// Resgate: toda a regra está na função fn_resgatar (transação no banco)
++// Resgate: toda a regra está na procedure sp_resgatar (transação no banco)
+ r.post('/recompensas/:id/resgatar', auth, async (req, res) => {
+   try {
+-    const { rows } = await query(`SELECT fn_resgatar($1, $2) AS codigo`, [req.userId, Number(req.params.id)]);
++    const { rows } = await query(`CALL sp_resgatar($1, $2)`, [req.userId, Number(req.params.id)]);
+     const saldo = await query(`SELECT pontos_ecologicos FROM usuario WHERE id_usuario = $1`, [req.userId]);
+     res.json({ codigo: rows[0].codigo, pontos_ecologicos: saldo.rows[0].pontos_ecologicos });
+   } catch (e) {
+-    if (e.code === 'P0001') return res.status(400).json({ erro: e.message });
++    if (ERRO.regra(e)) return res.status(400).json({ erro: e.sqlMessage || e.message });
+     throw e;
+   }
+ });
+@@ -70,13 +70,17 @@ r.get('/busca', auth, async (req, res) => {
+   const [pessoas, acoes, recompensas] = await Promise.all([
+     query(`SELECT u.id_usuario, u.nome, u.usuario, u.pontos_ecologicos,
+                   EXISTS (SELECT 1 FROM seguidor s WHERE s.id_seguidor = $2 AND s.id_seguido = u.id_usuario) AS seguindo
+-             FROM usuario u WHERE (u.nome ILIKE $1 OR u.usuario ILIKE $1) AND u.id_usuario <> $2 LIMIT 6`, [termo, req.userId]),
+-    query(`SELECT *, false AS curtiu FROM vw_feed WHERE conteudo ILIKE $1 OR categoria ILIKE $1 ORDER BY data_postagem DESC LIMIT 6`, [termo]),
++             FROM usuario u WHERE (u.nome LIKE $1 OR u.usuario LIKE $1) AND u.id_usuario <> $2 LIMIT 6`, [termo, req.userId]),
++    query(`SELECT *, false AS curtiu FROM vw_feed WHERE conteudo LIKE $1 OR categoria LIKE $1 ORDER BY data_postagem DESC LIMIT 6`, [termo]),
+     query(`SELECT r.*, p.razao_social AS patrocinador, p.localizacao FROM recompensa r
+              JOIN patrocinador p ON p.id_patrocinador = r.id_patrocinador
+-            WHERE r.titulo ILIKE $1 OR p.razao_social ILIKE $1 LIMIT 6`, [termo]),
++            WHERE r.titulo LIKE $1 OR p.razao_social LIKE $1 LIMIT 6`, [termo]),
+   ]);
+-  res.json({ pessoas: pessoas.rows, acoes: acoes.rows, recompensas: recompensas.rows });
++  res.json({
++    pessoas: pessoas.rows.map((p) => ({ ...p, seguindo: Boolean(p.seguindo) })),
++    acoes: acoes.rows.map((a) => ({ ...a, curtiu: Boolean(a.curtiu) })),
++    recompensas: recompensas.rows,
++  });
+ });
+ 
+ export default r;
+diff --git a/backend/src/routes/postagens.js b/backend/src/routes/postagens.js
+index bfce3bd..45b1e12 100644
+--- a/backend/src/routes/postagens.js
++++ b/backend/src/routes/postagens.js
+@@ -1,5 +1,5 @@
+ import { Router } from 'express';
+-import { conectar, query } from '../db.js';
++import { conectar, query, ERRO } from '../db.js';
+ import { auth, ehAdmin } from '../middleware/auth.js';
+ import { receberFoto } from '../middleware/foto.js';
+ import { apagarFoto, enviarFoto, storageConfigurado } from '../storage.js';
+@@ -12,7 +12,7 @@ r.get('/feed', auth, async (req, res) => {
+   const sql = filtro === 'alta'
+     ? `SELECT f.*, EXISTS (SELECT 1 FROM curtida c WHERE c.id_postagem = f.id_postagem AND c.id_usuario = $1) AS curtiu
+          FROM vw_feed f
+-        WHERE f.status_validacao <> 'recusada' AND f.data_postagem > now() - interval '7 days'
++        WHERE f.status_validacao <> 'recusada' AND f.data_postagem > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
+         ORDER BY f.curtidas DESC, f.data_postagem DESC LIMIT 30`
+     : `SELECT f.*, EXISTS (SELECT 1 FROM curtida c WHERE c.id_postagem = f.id_postagem AND c.id_usuario = $1) AS curtiu
+          FROM vw_feed f
+@@ -20,7 +20,7 @@ r.get('/feed', auth, async (req, res) => {
+           AND (f.id_usuario = $1 OR f.id_usuario IN (SELECT id_seguido FROM seguidor WHERE id_seguidor = $1))
+         ORDER BY f.data_postagem DESC LIMIT 30`;
+   const { rows } = await query(sql, [req.userId]);
+-  res.json(rows);
++  res.json(rows.map((p) => ({ ...p, curtiu: Boolean(p.curtiu) })));
+ });
+ 
+ // Registrar ação. No MVP a validação é automática (depois vira moderação).
+@@ -46,16 +46,16 @@ r.post('/', auth, receberFoto, async (req, res) => {
+   const client = await conectar();
+   try {
+     await client.query('BEGIN');
+-    const { rows } = await client.query(
++    const novo = await client.query(
+       `INSERT INTO postagem (id_usuario, id_categoria, id_desafio, conteudo, url_foto)
+-       VALUES ($1, $2, $3, $4, $5) RETURNING id_postagem`,
++       VALUES ($1, $2, $3, $4, $5)`,
+       [req.userId, id_categoria, id_desafio || null, conteudo.trim(), urlFoto]
+     );
+-    await client.query(`UPDATE postagem SET status_validacao = 'validada' WHERE id_postagem = $1`, [rows[0].id_postagem]);
++    await client.query(`UPDATE postagem SET status_validacao = 'validada' WHERE id_postagem = $1`, [novo.insertId]);
+     await client.query('COMMIT');
+-    const post = await query(`SELECT *, false AS curtiu FROM vw_feed WHERE id_postagem = $1`, [rows[0].id_postagem]);
++    const post = await query(`SELECT * FROM vw_feed WHERE id_postagem = $1`, [novo.insertId]);
+     const saldo = await query(`SELECT pontos_ecologicos, nivel FROM usuario WHERE id_usuario = $1`, [req.userId]);
+-    res.status(201).json({ postagem: post.rows[0], ...saldo.rows[0] });
++    res.status(201).json({ postagem: { ...post.rows[0], curtiu: false }, ...saldo.rows[0] });
+   } catch (e) {
+     // A postagem não foi gravada: a foto ficaria órfã no bucket.
+     // Vem antes do ROLLBACK para acontecer mesmo se a conexão tiver caído.
+@@ -77,11 +77,11 @@ r.get('/:id', auth, async (req, res) => {
+     [id, req.userId]
+   );
+   if (!rows[0]) return res.status(404).json({ erro: 'Essa postagem não existe.' });
+-  res.json(rows[0]);
++  res.json({ ...rows[0], curtiu: Boolean(rows[0].curtiu) });
+ });
+ 
+ // Apagar a própria postagem (ou qualquer uma, se for admin). O trigger trg_estornar_pontos
+-// (05 e 07) tira os pontos e as conquistas que ela deu; curtidas e comentários saem em cascata.
++// tira os pontos e as conquistas que ela deu; curtidas e comentários saem em cascata.
+ // Admin apaga em modo moderação: o saldo do autor cai só até zero, em vez de barrar.
+ r.delete('/:id', auth, async (req, res) => {
+   const id = Number(req.params.id);
+@@ -91,21 +91,24 @@ r.delete('/:id', auth, async (req, res) => {
+   let apagada;
+   try {
+     await client.query('BEGIN');
+-    if (admin) await client.query(`SET LOCAL createit.moderacao = 'on'`);
++    // A variável de sessão vale para a conexão inteira: desliga no finally, antes de devolver ao pool
++    if (admin) await client.query(`SET @createit_moderacao = 'on'`);
+     const { rows } = await client.query(
+-      `DELETE FROM postagem WHERE id_postagem = $1 AND (id_usuario = $2 OR $3) RETURNING url_foto`,
++      `SELECT url_foto FROM postagem WHERE id_postagem = $1 AND (id_usuario = $2 OR $3)`,
+       [id, req.userId, admin]
+     );
++    if (rows[0]) await client.query(`DELETE FROM postagem WHERE id_postagem = $1`, [id]);
+     await client.query('COMMIT');
+     apagada = rows[0];
+   } catch (e) {
+     await client.query('ROLLBACK');
+     // CHECK (pontos_ecologicos >= 0): os pontos dessa ação já foram gastos
+-    if (e.code === '23514') {
++    if (ERRO.checkViolado(e)) {
+       return res.status(409).json({ erro: 'Os pontos dessa ação já foram usados em resgates, então ela não pode ser apagada.' });
+     }
+     throw e;
+   } finally {
++    await client.query('SET @createit_moderacao = NULL').catch(() => {});
+     client.release();
+   }
+   if (!apagada) return res.status(404).json({ erro: 'Essa postagem não existe ou não é sua.' });
+@@ -121,7 +124,7 @@ r.post('/:id/curtir', auth, async (req, res) => {
+   if (del.rowCount === 0) {
+     await query(`INSERT INTO curtida (id_usuario, id_postagem) VALUES ($1, $2)`, [req.userId, id]);
+   }
+-  const { rows } = await query(`SELECT count(*)::int AS curtidas FROM curtida WHERE id_postagem = $1`, [id]);
++  const { rows } = await query(`SELECT count(*) AS curtidas FROM curtida WHERE id_postagem = $1`, [id]);
+   res.json({ curtiu: del.rowCount === 0, curtidas: rows[0].curtidas });
+ });
+ 
+@@ -148,7 +151,7 @@ r.delete('/:id/curtidas/:usuario', auth, async (req, res) => {
+   }
+   const { rowCount } = await query(`DELETE FROM curtida WHERE id_postagem = $1 AND id_usuario = $2`, [id, idUsuario]);
+   if (!rowCount) return res.status(404).json({ erro: 'Essa curtida não existe mais.' });
+-  const { rows } = await query(`SELECT count(*)::int AS curtidas FROM curtida WHERE id_postagem = $1`, [id]);
++  const { rows } = await query(`SELECT count(*) AS curtidas FROM curtida WHERE id_postagem = $1`, [id]);
+   res.json(rows[0]);
+ });
+ 
+@@ -172,18 +175,20 @@ r.post('/:id/comentarios', auth, async (req, res) => {
+   if (!Number.isInteger(id)) return res.status(404).json({ erro: 'Essa postagem não existe.' });
+   if (!texto) return res.status(400).json({ erro: 'Escreva um comentário.' });
+   try {
++    const novo = await query(
++      `INSERT INTO comentario (id_usuario, id_postagem, texto) VALUES ($1, $2, $3)`,
++      [req.userId, id, texto.slice(0, 500)]
++    );
+     // Devolve o comentário já com nome e @ do autor, igual à listagem
+     const { rows } = await query(
+-      `WITH novo AS (
+-         INSERT INTO comentario (id_usuario, id_postagem, texto) VALUES ($1, $2, $3) RETURNING *
+-       )
+-       SELECT novo.id_comentario, novo.id_usuario, novo.texto, novo.data_comentario, u.nome, u.usuario
+-         FROM novo JOIN usuario u ON u.id_usuario = novo.id_usuario`,
+-      [req.userId, id, texto.slice(0, 500)]
++      `SELECT c.id_comentario, c.id_usuario, c.texto, c.data_comentario, u.nome, u.usuario
++         FROM comentario c JOIN usuario u ON u.id_usuario = c.id_usuario
++        WHERE c.id_comentario = $1`,
++      [novo.insertId]
+     );
+     res.status(201).json(rows[0]);
+   } catch (e) {
+-    if (e.code === '23503') return res.status(404).json({ erro: 'Essa postagem não existe mais.' });
++    if (ERRO.fkViolada(e)) return res.status(404).json({ erro: 'Essa postagem não existe mais.' });
+     throw e;
+   }
+ });
+@@ -199,7 +204,7 @@ r.delete('/:id/comentarios/:comentario', auth, async (req, res) => {
+     [idComentario, id, req.userId, admin]
+   );
+   if (!rowCount) return res.status(404).json({ erro: 'Esse comentário não existe ou não é seu.' });
+-  const { rows } = await query(`SELECT count(*)::int AS comentarios FROM comentario WHERE id_postagem = $1`, [id]);
++  const { rows } = await query(`SELECT count(*) AS comentarios FROM comentario WHERE id_postagem = $1`, [id]);
+   res.json(rows[0]);
+ });
+ 
+diff --git a/backend/src/routes/usuarios.js b/backend/src/routes/usuarios.js
+index 0a706ef..2b3e202 100644
+--- a/backend/src/routes/usuarios.js
++++ b/backend/src/routes/usuarios.js
+@@ -9,9 +9,9 @@ r.get('/:id', auth, async (req, res) => {
+   const id = Number(req.params.id);
+   const { rows } = await query(
+     `SELECT u.id_usuario, u.nome, u.usuario, u.bio, u.cidade, u.pontos_ecologicos, u.nivel,
+-            (SELECT count(*)::int FROM postagem p WHERE p.id_usuario = u.id_usuario AND p.status_validacao = 'validada') AS acoes,
+-            (SELECT count(*)::int FROM seguidor s WHERE s.id_seguido = u.id_usuario)  AS seguidores,
+-            (SELECT count(*)::int FROM seguidor s WHERE s.id_seguidor = u.id_usuario) AS seguindo,
++            (SELECT count(*) FROM postagem p WHERE p.id_usuario = u.id_usuario AND p.status_validacao = 'validada') AS acoes,
++            (SELECT count(*) FROM seguidor s WHERE s.id_seguido = u.id_usuario)  AS seguidores,
++            (SELECT count(*) FROM seguidor s WHERE s.id_seguidor = u.id_usuario) AS seguindo,
+             EXISTS (SELECT 1 FROM seguidor s WHERE s.id_seguidor = $2 AND s.id_seguido = u.id_usuario) AS eu_sigo
+        FROM usuario u WHERE u.id_usuario = $1`,
+     [id, req.userId]
+@@ -21,7 +21,7 @@ r.get('/:id', auth, async (req, res) => {
+   const [conquistas, impacto, historico, postagens] = await Promise.all([
+     query(`SELECT c.*, uc.data_obtencao FROM conquista c
+              LEFT JOIN usuario_conquista uc ON uc.id_conquista = c.id_conquista AND uc.id_usuario = $1
+-            ORDER BY uc.data_obtencao NULLS LAST, c.id_conquista`, [id]),
++            ORDER BY (uc.data_obtencao IS NULL), uc.data_obtencao, c.id_conquista`, [id]),
+     query(`SELECT * FROM vw_impacto_categoria WHERE id_usuario = $1 ORDER BY acoes DESC`, [id]),
+     query(`SELECT * FROM (
+              SELECT 'acao' AS tipo, conteudo AS descricao, pontos_gerados AS pontos, data_postagem AS data
+@@ -34,7 +34,7 @@ r.get('/:id', auth, async (req, res) => {
+              FROM vw_feed f WHERE f.id_usuario = $1 ORDER BY f.data_postagem DESC LIMIT 20`, [id, req.userId]),
+   ]);
+ 
+-  res.json({ ...rows[0], conquistas: conquistas.rows, impacto: impacto.rows, historico: historico.rows, postagens: postagens.rows });
++  res.json({ ...rows[0], eu_sigo: Boolean(rows[0].eu_sigo), conquistas: conquistas.rows, impacto: impacto.rows, historico: historico.rows, postagens: postagens.rows.map((p) => ({ ...p, curtiu: Boolean(p.curtiu) })) });
+ });
+ 
+ r.post('/:id/seguir', auth, async (req, res) => {
+diff --git a/database-mysql/01_schema.sql b/database-mysql/01_schema.sql
+index 09b211d..e94a9f7 100644
+--- a/database-mysql/01_schema.sql
++++ b/database-mysql/01_schema.sql
+@@ -9,6 +9,7 @@
+ -- Horários ficam em UTC (DATETIME), igual ao TIMESTAMPTZ do Postgres.
+ -- =====================================================================
+ 
++SET NAMES utf8mb4;   -- garante os acentos mesmo se o cliente começar em outro charset
+ DROP DATABASE IF EXISTS createit;
+ CREATE DATABASE createit CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+ USE createit;
+diff --git a/database-mysql/02_seed.sql b/database-mysql/02_seed.sql
+index 0be1f8f..9af7763 100644
+--- a/database-mysql/02_seed.sql
++++ b/database-mysql/02_seed.sql
+@@ -2,6 +2,7 @@
+ -- Create It - Dados de teste (MySQL 8)
+ -- Todos os usuários de teste usam a senha: create123
+ -- =====================================================================
++SET NAMES utf8mb4;   -- garante os acentos mesmo se o cliente começar em outro charset
+ USE createit;
+ 
+ INSERT INTO categoria_acao (nome, pontos_base) VALUES
+diff --git a/database-mysql/03_seguranca.sql b/database-mysql/03_seguranca.sql
+index d2cf844..b95f1b9 100644
+--- a/database-mysql/03_seguranca.sql
++++ b/database-mysql/03_seguranca.sql
+@@ -4,6 +4,7 @@
+ --
+ -- >>> TROQUE AS SENHAS ABAIXO antes de rodar. Não deixe senha de verdade no GitHub. <<<
+ -- =====================================================================
++SET NAMES utf8mb4;   -- garante os acentos mesmo se o cliente começar em outro charset
+ USE createit;
+ 
+ -- Papéis (grupos de permissão)
+diff --git a/database-mysql/README.md b/database-mysql/README.md
+index efec1d5..b7fc095 100644
+--- a/database-mysql/README.md
++++ b/database-mysql/README.md
+@@ -35,17 +35,20 @@ No Workbench, abra o arquivo e execute tudo (ele entende o `DELIMITER`). Num cli
+ - **Segurança:** o MySQL não tem REVOKE parcial dentro de um GRANT de schema inteiro. Por isso o `papel_app` recebe GRANT tabela por tabela, sem escrita em `categoria_acao` e sem DELETE em `resgate`.
+ - **Comparação de texto:** a collation `utf8mb4_unicode_ci` ignora maiúsculas e acentos. `Marina@x.com` e `marina@x.com` contam como o mesmo e-mail (no Postgres eram diferentes).
+ 
+-## O que ainda precisa mudar no back-end (`backend/src`)
++## Back-end (`backend/src`): já convertido
+ 
+-O back-end ainda fala PostgreSQL (`pg`). Para rodar em MySQL é preciso:
++A API agora usa `mysql2`. O `db.js` converte os `$1, $2` das consultas em `?`, abre o pool com SSL (o Aiven exige) e devolve `{ rows, rowCount, insertId }`, então as rotas mudaram pouco. O que foi trocado nas rotas:
+ 
+-- trocar `pg` por `mysql2` e reescrever `db.js` (sem `search_path`; pool com `timezone: 'Z'`);
+-- `$1, $2` → `?`, e `ILIKE` → `LIKE`;
+-- `RETURNING id_postagem` → usar `insertId` do resultado;
+-- `rows`/`rowCount` → o mysql2 devolve `[rows, fields]` e `affectedRows`;
+-- `SELECT fn_resgatar($1,$2)` → `CALL sp_resgatar(?, ?)`, tratando o erro `ER_SIGNAL_EXCEPTION` (código 1644);
+-- `count(*)::int`, `false AS curtiu` e `EXISTS (...)` em `SELECT` (booleanos voltam como 0/1);
+-- `SET LOCAL createit.moderacao` → `SET @createit_moderacao`.
++- `RETURNING` → `INSERT`/`UPDATE` seguido de `SELECT` (usando `insertId`);
++- `ILIKE` → `LIKE` (a collation já ignora maiúsculas); `||` → `CONCAT`; `now() - interval` → `DATE_SUB(UTC_TIMESTAMP(), ...)`;
++- `NULLS LAST` → `ORDER BY (coluna IS NULL), coluna`;
++- `fn_resgatar` → `CALL sp_resgatar(?, ?)`; o erro de regra vem como `errno 1644`;
++- `SET LOCAL createit.moderacao` → `SET @createit_moderacao`, desligado no `finally` antes de devolver a conexão ao pool;
++- `EXISTS(...)` volta como 0/1 no MySQL, então as rotas convertem para `true/false` para o front-end e o app não perceberem a troca.
++
++Como rodar: em `backend/.env`, use `DATABASE_URL=mysql://usuario:senha@host:porta/createit` (veja `backend/.env.example`). As fotos continuam no Supabase Storage (variáveis `SUPABASE_*`, opcionais).
++
++O tempo real do feed (Supabase Realtime) não funciona com MySQL. O site e o app seguem normais, só não atualizam o feed sozinhos.
+ 
+ ## Um aviso de segurança
+ 
+-- 
+2.43.0
+
