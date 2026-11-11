@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { conectar, query } from '../db.js';
+import { conectar, query, ERRO } from '../db.js';
 import { auth, ehAdmin } from '../middleware/auth.js';
 import { receberFoto } from '../middleware/foto.js';
 import { apagarFoto, enviarFoto, storageConfigurado } from '../storage.js';
@@ -12,7 +12,7 @@ r.get('/feed', auth, async (req, res) => {
   const sql = filtro === 'alta'
     ? `SELECT f.*, EXISTS (SELECT 1 FROM curtida c WHERE c.id_postagem = f.id_postagem AND c.id_usuario = $1) AS curtiu
          FROM vw_feed f
-        WHERE f.status_validacao <> 'recusada' AND f.data_postagem > now() - interval '7 days'
+        WHERE f.status_validacao <> 'recusada' AND f.data_postagem > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
         ORDER BY f.curtidas DESC, f.data_postagem DESC LIMIT 30`
     : `SELECT f.*, EXISTS (SELECT 1 FROM curtida c WHERE c.id_postagem = f.id_postagem AND c.id_usuario = $1) AS curtiu
          FROM vw_feed f
@@ -20,7 +20,7 @@ r.get('/feed', auth, async (req, res) => {
           AND (f.id_usuario = $1 OR f.id_usuario IN (SELECT id_seguido FROM seguidor WHERE id_seguidor = $1))
         ORDER BY f.data_postagem DESC LIMIT 30`;
   const { rows } = await query(sql, [req.userId]);
-  res.json(rows);
+  res.json(rows.map((p) => ({ ...p, curtiu: Boolean(p.curtiu) })));
 });
 
 // Registrar ação. No MVP a validação é automática (depois vira moderação).
@@ -46,16 +46,16 @@ r.post('/', auth, receberFoto, async (req, res) => {
   const client = await conectar();
   try {
     await client.query('BEGIN');
-    const { rows } = await client.query(
+    const novo = await client.query(
       `INSERT INTO postagem (id_usuario, id_categoria, id_desafio, conteudo, url_foto)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id_postagem`,
+       VALUES ($1, $2, $3, $4, $5)`,
       [req.userId, id_categoria, id_desafio || null, conteudo.trim(), urlFoto]
     );
-    await client.query(`UPDATE postagem SET status_validacao = 'validada' WHERE id_postagem = $1`, [rows[0].id_postagem]);
+    await client.query(`UPDATE postagem SET status_validacao = 'validada' WHERE id_postagem = $1`, [novo.insertId]);
     await client.query('COMMIT');
-    const post = await query(`SELECT *, false AS curtiu FROM vw_feed WHERE id_postagem = $1`, [rows[0].id_postagem]);
+    const post = await query(`SELECT * FROM vw_feed WHERE id_postagem = $1`, [novo.insertId]);
     const saldo = await query(`SELECT pontos_ecologicos, nivel FROM usuario WHERE id_usuario = $1`, [req.userId]);
-    res.status(201).json({ postagem: post.rows[0], ...saldo.rows[0] });
+    res.status(201).json({ postagem: { ...post.rows[0], curtiu: false }, ...saldo.rows[0] });
   } catch (e) {
     // A postagem não foi gravada: a foto ficaria órfã no bucket.
     // Vem antes do ROLLBACK para acontecer mesmo se a conexão tiver caído.
@@ -77,11 +77,11 @@ r.get('/:id', auth, async (req, res) => {
     [id, req.userId]
   );
   if (!rows[0]) return res.status(404).json({ erro: 'Essa postagem não existe.' });
-  res.json(rows[0]);
+  res.json({ ...rows[0], curtiu: Boolean(rows[0].curtiu) });
 });
 
 // Apagar a própria postagem (ou qualquer uma, se for admin). O trigger trg_estornar_pontos
-// (05 e 07) tira os pontos e as conquistas que ela deu; curtidas e comentários saem em cascata.
+// tira os pontos e as conquistas que ela deu; curtidas e comentários saem em cascata.
 // Admin apaga em modo moderação: o saldo do autor cai só até zero, em vez de barrar.
 r.delete('/:id', auth, async (req, res) => {
   const id = Number(req.params.id);
@@ -91,21 +91,24 @@ r.delete('/:id', auth, async (req, res) => {
   let apagada;
   try {
     await client.query('BEGIN');
-    if (admin) await client.query(`SET LOCAL createit.moderacao = 'on'`);
+    // A variável de sessão vale para a conexão inteira: desliga no finally, antes de devolver ao pool
+    if (admin) await client.query(`SET @createit_moderacao = 'on'`);
     const { rows } = await client.query(
-      `DELETE FROM postagem WHERE id_postagem = $1 AND (id_usuario = $2 OR $3) RETURNING url_foto`,
+      `SELECT url_foto FROM postagem WHERE id_postagem = $1 AND (id_usuario = $2 OR $3)`,
       [id, req.userId, admin]
     );
+    if (rows[0]) await client.query(`DELETE FROM postagem WHERE id_postagem = $1`, [id]);
     await client.query('COMMIT');
     apagada = rows[0];
   } catch (e) {
     await client.query('ROLLBACK');
     // CHECK (pontos_ecologicos >= 0): os pontos dessa ação já foram gastos
-    if (e.code === '23514') {
+    if (ERRO.checkViolado(e)) {
       return res.status(409).json({ erro: 'Os pontos dessa ação já foram usados em resgates, então ela não pode ser apagada.' });
     }
     throw e;
   } finally {
+    await client.query('SET @createit_moderacao = NULL').catch(() => {});
     client.release();
   }
   if (!apagada) return res.status(404).json({ erro: 'Essa postagem não existe ou não é sua.' });
@@ -121,7 +124,7 @@ r.post('/:id/curtir', auth, async (req, res) => {
   if (del.rowCount === 0) {
     await query(`INSERT INTO curtida (id_usuario, id_postagem) VALUES ($1, $2)`, [req.userId, id]);
   }
-  const { rows } = await query(`SELECT count(*)::int AS curtidas FROM curtida WHERE id_postagem = $1`, [id]);
+  const { rows } = await query(`SELECT count(*) AS curtidas FROM curtida WHERE id_postagem = $1`, [id]);
   res.json({ curtiu: del.rowCount === 0, curtidas: rows[0].curtidas });
 });
 
@@ -148,7 +151,7 @@ r.delete('/:id/curtidas/:usuario', auth, async (req, res) => {
   }
   const { rowCount } = await query(`DELETE FROM curtida WHERE id_postagem = $1 AND id_usuario = $2`, [id, idUsuario]);
   if (!rowCount) return res.status(404).json({ erro: 'Essa curtida não existe mais.' });
-  const { rows } = await query(`SELECT count(*)::int AS curtidas FROM curtida WHERE id_postagem = $1`, [id]);
+  const { rows } = await query(`SELECT count(*) AS curtidas FROM curtida WHERE id_postagem = $1`, [id]);
   res.json(rows[0]);
 });
 
@@ -172,18 +175,20 @@ r.post('/:id/comentarios', auth, async (req, res) => {
   if (!Number.isInteger(id)) return res.status(404).json({ erro: 'Essa postagem não existe.' });
   if (!texto) return res.status(400).json({ erro: 'Escreva um comentário.' });
   try {
+    const novo = await query(
+      `INSERT INTO comentario (id_usuario, id_postagem, texto) VALUES ($1, $2, $3)`,
+      [req.userId, id, texto.slice(0, 500)]
+    );
     // Devolve o comentário já com nome e @ do autor, igual à listagem
     const { rows } = await query(
-      `WITH novo AS (
-         INSERT INTO comentario (id_usuario, id_postagem, texto) VALUES ($1, $2, $3) RETURNING *
-       )
-       SELECT novo.id_comentario, novo.id_usuario, novo.texto, novo.data_comentario, u.nome, u.usuario
-         FROM novo JOIN usuario u ON u.id_usuario = novo.id_usuario`,
-      [req.userId, id, texto.slice(0, 500)]
+      `SELECT c.id_comentario, c.id_usuario, c.texto, c.data_comentario, u.nome, u.usuario
+         FROM comentario c JOIN usuario u ON u.id_usuario = c.id_usuario
+        WHERE c.id_comentario = $1`,
+      [novo.insertId]
     );
     res.status(201).json(rows[0]);
   } catch (e) {
-    if (e.code === '23503') return res.status(404).json({ erro: 'Essa postagem não existe mais.' });
+    if (ERRO.fkViolada(e)) return res.status(404).json({ erro: 'Essa postagem não existe mais.' });
     throw e;
   }
 });
@@ -199,7 +204,7 @@ r.delete('/:id/comentarios/:comentario', auth, async (req, res) => {
     [idComentario, id, req.userId, admin]
   );
   if (!rowCount) return res.status(404).json({ erro: 'Esse comentário não existe ou não é seu.' });
-  const { rows } = await query(`SELECT count(*)::int AS comentarios FROM comentario WHERE id_postagem = $1`, [id]);
+  const { rows } = await query(`SELECT count(*) AS comentarios FROM comentario WHERE id_postagem = $1`, [id]);
   res.json(rows[0]);
 });
 

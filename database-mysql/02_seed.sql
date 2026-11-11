@@ -2,6 +2,7 @@
 -- Create It - Dados de teste (MySQL 8)
 -- Todos os usuários de teste usam a senha: create123
 -- =====================================================================
+SET NAMES utf8mb4;   -- garante os acentos mesmo se o cliente começar em outro charset
 USE createit;
 
 INSERT INTO categoria_acao (nome, pontos_base) VALUES

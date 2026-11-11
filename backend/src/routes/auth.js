@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { query } from '../db.js';
+import { query, ERRO } from '../db.js';
 import { auth } from '../middleware/auth.js';
 
 const r = Router();
@@ -19,14 +19,15 @@ r.post('/cadastro', async (req, res) => {
   const usuario = `${base}${Math.floor(Math.random() * 900 + 100)}`;
   const hash = await bcrypt.hash(senha, 10);
   try {
-    const { rows } = await query(
+    const novo = await query(
       `INSERT INTO usuario (nome, cpf, email, senha_hash, usuario)
-       VALUES ($1, $2, $3, $4, $5) RETURNING ${PUBLICO}`,
+       VALUES ($1, $2, $3, $4, $5)`,
       [nome.trim(), cpfLimpo, email.trim().toLowerCase(), hash, usuario]
     );
+    const { rows } = await query(`SELECT ${PUBLICO} FROM usuario WHERE id_usuario = $1`, [novo.insertId]);
     res.status(201).json({ token: gerarToken(rows[0].id_usuario), usuario: rows[0] });
   } catch (e) {
-    if (e.code === '23505') return res.status(409).json({ erro: 'Já existe uma conta com esse e-mail ou CPF.' });
+    if (ERRO.duplicado(e)) return res.status(409).json({ erro: 'Já existe uma conta com esse e-mail ou CPF.' });
     throw e;
   }
 });
@@ -85,15 +86,16 @@ r.put('/eu', auth, async (req, res) => {
   if (cidade.length > 80) return res.status(400).json({ erro: 'A cidade pode ter no máximo 80 caracteres.' });
 
   try {
-    const { rows } = await query(
+    const upd = await query(
       `UPDATE usuario SET nome = $1, usuario = $2, bio = $3, cidade = $4
-        WHERE id_usuario = $5 RETURNING ${PUBLICO}`,
+        WHERE id_usuario = $5`,
       [nome, usuario, bio || null, cidade || null, req.userId]
     );
-    if (!rows[0]) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+    if (!upd.rowCount) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+    const { rows } = await query(`SELECT ${PUBLICO} FROM usuario WHERE id_usuario = $1`, [req.userId]);
     res.json(rows[0]);
   } catch (e) {
-    if (e.code === '23505') return res.status(409).json({ erro: `O @${usuario} já está em uso. Escolha outro.` });
+    if (ERRO.duplicado(e)) return res.status(409).json({ erro: `O @${usuario} já está em uso. Escolha outro.` });
     throw e;
   }
 });

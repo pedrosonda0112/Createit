@@ -1,0 +1,641 @@
+From a3c5cf219ce70b387efa5dff6909510fbef2474f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 11 Nov 2026 18:30:46 -0300
+Subject: [PATCH 1/2] Adiciona scripts do banco em MySQL 8 (database-mysql)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Versão MySQL dos scripts de database/ (PostgreSQL/Supabase), exigida pela A3:
+- 01_schema.sql: tabelas, constraints, índices, triggers de crédito e estorno de
+  pontos, procedure sp_resgatar (no lugar de fn_resgatar) e views
+- 02_seed.sql: dados de teste com os mesmos pontos e ranking do original
+- 03_seguranca.sql: papéis e usuários com GRANT (senhas de exemplo para trocar)
+- README.md: mapa das mudanças e o que falta mudar no back-end
+
+Os scripts 04 (Storage) e 06 (Realtime) são do Supabase e não têm equivalente.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_015qVr68HVaF8RED5HhtFigw
+---
+ database-mysql/01_schema.sql    | 396 ++++++++++++++++++++++++++++++++
+ database-mysql/02_seed.sql      |  81 +++++++
+ database-mysql/03_seguranca.sql |  55 +++++
+ database-mysql/README.md        |  52 +++++
+ 4 files changed, 584 insertions(+)
+ create mode 100644 database-mysql/01_schema.sql
+ create mode 100644 database-mysql/02_seed.sql
+ create mode 100644 database-mysql/03_seguranca.sql
+ create mode 100644 database-mysql/README.md
+
+diff --git a/database-mysql/01_schema.sql b/database-mysql/01_schema.sql
+new file mode 100644
+index 0000000..09b211d
+--- /dev/null
++++ b/database-mysql/01_schema.sql
+@@ -0,0 +1,396 @@
++-- =====================================================================
++-- Create It - Script de criação do banco (MySQL 8)
++-- A3 Banco de Dados - Universidade Anhembi Morumbi
++--
++-- Versão MySQL do 01_schema.sql (PostgreSQL). Já inclui o que os scripts
++-- 05 (apagar postagem) e 07 (coluna admin) acrescentavam.
++-- Rode com o cliente "mysql" ou o Workbench (o DELIMITER dos triggers e
++-- da procedure é comando do cliente).
++-- Horários ficam em UTC (DATETIME), igual ao TIMESTAMPTZ do Postgres.
++-- =====================================================================
++
++DROP DATABASE IF EXISTS createit;
++CREATE DATABASE createit CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
++USE createit;
++
++-- ---------------------------------------------------------------------
++-- Tabelas principais
++-- ---------------------------------------------------------------------
++CREATE TABLE usuario (
++    id_usuario         INT          NOT NULL AUTO_INCREMENT,
++    nome               VARCHAR(120) NOT NULL,
++    cpf                CHAR(11)     NOT NULL,
++    email              VARCHAR(160) NOT NULL,
++    senha_hash         VARCHAR(255) NOT NULL,
++    usuario            VARCHAR(40)  NOT NULL,                 -- o @usuario
++    bio                VARCHAR(280),
++    cidade             VARCHAR(80),
++    pontos_ecologicos  INT          NOT NULL DEFAULT 0,
++    nivel              INT          NOT NULL DEFAULT 1,
++    admin              BOOLEAN      NOT NULL DEFAULT FALSE,
++    data_cadastro      DATETIME     NOT NULL DEFAULT (UTC_TIMESTAMP()),
++    PRIMARY KEY (id_usuario),
++    UNIQUE KEY uq_usuario_cpf (cpf),
++    UNIQUE KEY uq_usuario_email (email),
++    UNIQUE KEY uq_usuario_usuario (usuario),
++    CONSTRAINT ck_usuario_pontos CHECK (pontos_ecologicos >= 0),
++    CONSTRAINT ck_usuario_nivel  CHECK (nivel >= 1)
++) ENGINE=InnoDB;
++
++CREATE TABLE categoria_acao (
++    id_categoria  INT         NOT NULL AUTO_INCREMENT,
++    nome          VARCHAR(40) NOT NULL,
++    pontos_base   INT         NOT NULL,
++    PRIMARY KEY (id_categoria),
++    UNIQUE KEY uq_categoria_nome (nome),
++    CONSTRAINT ck_categoria_pontos CHECK (pontos_base > 0)
++) ENGINE=InnoDB;
++
++CREATE TABLE patrocinador (
++    id_patrocinador  INT          NOT NULL AUTO_INCREMENT,
++    razao_social     VARCHAR(120) NOT NULL,
++    cnpj             CHAR(14)     NOT NULL,
++    porte            VARCHAR(20)  NOT NULL,
++    localizacao      VARCHAR(120),
++    PRIMARY KEY (id_patrocinador),
++    UNIQUE KEY uq_patrocinador_cnpj (cnpj),
++    CONSTRAINT ck_patrocinador_porte CHECK (porte IN ('micro','pequeno','medio','grande'))
++) ENGINE=InnoDB;
++
++CREATE TABLE desafio (
++    id_desafio       INT          NOT NULL AUTO_INCREMENT,
++    id_patrocinador  INT          NULL,                      -- nulo = desafio da comunidade
++    id_categoria     INT          NOT NULL,
++    titulo           VARCHAR(120) NOT NULL,
++    descricao        TEXT,
++    meta_acoes       INT          NOT NULL,
++    pontos_bonus     INT          NOT NULL,
++    data_inicio      DATE         NOT NULL,
++    data_fim         DATE         NOT NULL,
++    PRIMARY KEY (id_desafio),
++    CONSTRAINT fk_desafio_patrocinador FOREIGN KEY (id_patrocinador)
++        REFERENCES patrocinador (id_patrocinador) ON DELETE SET NULL,
++    CONSTRAINT fk_desafio_categoria FOREIGN KEY (id_categoria)
++        REFERENCES categoria_acao (id_categoria),
++    CONSTRAINT ck_desafio_meta   CHECK (meta_acoes > 0),
++    CONSTRAINT ck_desafio_bonus  CHECK (pontos_bonus >= 0),
++    CONSTRAINT ck_desafio_datas  CHECK (data_fim >= data_inicio)
++) ENGINE=InnoDB;
++
++CREATE TABLE postagem (
++    id_postagem       INT         NOT NULL AUTO_INCREMENT,
++    id_usuario        INT         NOT NULL,
++    id_categoria      INT         NOT NULL,
++    id_desafio        INT         NULL,
++    conteudo          TEXT        NOT NULL,
++    url_foto          TEXT,
++    pontos_gerados    INT         NOT NULL DEFAULT 0,
++    status_validacao  VARCHAR(10) NOT NULL DEFAULT 'pendente',
++    data_postagem     DATETIME    NOT NULL DEFAULT (UTC_TIMESTAMP()),
++    PRIMARY KEY (id_postagem),
++    CONSTRAINT fk_postagem_usuario FOREIGN KEY (id_usuario)
++        REFERENCES usuario (id_usuario) ON DELETE CASCADE,
++    CONSTRAINT fk_postagem_categoria FOREIGN KEY (id_categoria)
++        REFERENCES categoria_acao (id_categoria),
++    CONSTRAINT fk_postagem_desafio FOREIGN KEY (id_desafio)
++        REFERENCES desafio (id_desafio) ON DELETE SET NULL,
++    CONSTRAINT ck_postagem_conteudo CHECK (CHAR_LENGTH(TRIM(conteudo)) > 0),
++    CONSTRAINT ck_postagem_pontos   CHECK (pontos_gerados >= 0),
++    CONSTRAINT ck_postagem_status   CHECK (status_validacao IN ('pendente','validada','recusada'))
++) ENGINE=InnoDB;
++
++-- ---------------------------------------------------------------------
++-- Interações (tabelas associativas N:N)
++-- ---------------------------------------------------------------------
++CREATE TABLE seguidor (
++    id_seguidor  INT      NOT NULL,
++    id_seguido   INT      NOT NULL,
++    data_inicio  DATETIME NOT NULL DEFAULT (UTC_TIMESTAMP()),
++    PRIMARY KEY (id_seguidor, id_seguido),
++    CONSTRAINT fk_seguidor_seguidor FOREIGN KEY (id_seguidor)
++        REFERENCES usuario (id_usuario) ON DELETE CASCADE,
++    CONSTRAINT fk_seguidor_seguido FOREIGN KEY (id_seguido)
++        REFERENCES usuario (id_usuario) ON DELETE CASCADE,
++    CONSTRAINT ck_seguidor_diferente CHECK (id_seguidor <> id_seguido)
++) ENGINE=InnoDB;
++
++CREATE TABLE curtida (
++    id_usuario    INT      NOT NULL,
++    id_postagem   INT      NOT NULL,
++    data_curtida  DATETIME NOT NULL DEFAULT (UTC_TIMESTAMP()),
++    PRIMARY KEY (id_usuario, id_postagem),
++    CONSTRAINT fk_curtida_usuario FOREIGN KEY (id_usuario)
++        REFERENCES usuario (id_usuario) ON DELETE CASCADE,
++    CONSTRAINT fk_curtida_postagem FOREIGN KEY (id_postagem)
++        REFERENCES postagem (id_postagem) ON DELETE CASCADE
++) ENGINE=InnoDB;
++
++CREATE TABLE comentario (
++    id_comentario    INT          NOT NULL AUTO_INCREMENT,
++    id_usuario       INT          NOT NULL,
++    id_postagem      INT          NOT NULL,
++    texto            VARCHAR(500) NOT NULL,
++    data_comentario  DATETIME     NOT NULL DEFAULT (UTC_TIMESTAMP()),
++    PRIMARY KEY (id_comentario),
++    CONSTRAINT fk_comentario_usuario FOREIGN KEY (id_usuario)
++        REFERENCES usuario (id_usuario) ON DELETE CASCADE,
++    CONSTRAINT fk_comentario_postagem FOREIGN KEY (id_postagem)
++        REFERENCES postagem (id_postagem) ON DELETE CASCADE
++) ENGINE=InnoDB;
++
++CREATE TABLE compartilhamento (
++    id_compartilhamento  INT         NOT NULL AUTO_INCREMENT,
++    id_usuario           INT         NOT NULL,
++    id_postagem          INT         NOT NULL,
++    tipo                 VARCHAR(10) NOT NULL,
++    data                 DATETIME    NOT NULL DEFAULT (UTC_TIMESTAMP()),
++    PRIMARY KEY (id_compartilhamento),
++    CONSTRAINT fk_compart_usuario FOREIGN KEY (id_usuario)
++        REFERENCES usuario (id_usuario) ON DELETE CASCADE,
++    CONSTRAINT fk_compart_postagem FOREIGN KEY (id_postagem)
++        REFERENCES postagem (id_postagem) ON DELETE CASCADE,
++    CONSTRAINT ck_compart_tipo CHECK (tipo IN ('repost','externo'))
++) ENGINE=InnoDB;
++
++CREATE TABLE filiacao (
++    id_usuario       INT      NOT NULL,
++    id_patrocinador  INT      NOT NULL,
++    data_filiacao    DATETIME NOT NULL DEFAULT (UTC_TIMESTAMP()),
++    PRIMARY KEY (id_usuario, id_patrocinador),
++    CONSTRAINT fk_filiacao_usuario FOREIGN KEY (id_usuario)
++        REFERENCES usuario (id_usuario) ON DELETE CASCADE,
++    CONSTRAINT fk_filiacao_patrocinador FOREIGN KEY (id_patrocinador)
++        REFERENCES patrocinador (id_patrocinador) ON DELETE CASCADE
++) ENGINE=InnoDB;
++
++-- ---------------------------------------------------------------------
++-- Recompensas e gamificação
++-- ---------------------------------------------------------------------
++CREATE TABLE recompensa (
++    id_recompensa    INT          NOT NULL AUTO_INCREMENT,
++    id_patrocinador  INT          NOT NULL,
++    titulo           VARCHAR(120) NOT NULL,
++    descricao        TEXT,
++    custo_pontos     INT          NOT NULL,
++    estoque          INT          NOT NULL,
++    validade         DATE         NOT NULL,
++    PRIMARY KEY (id_recompensa),
++    CONSTRAINT fk_recompensa_patrocinador FOREIGN KEY (id_patrocinador)
++        REFERENCES patrocinador (id_patrocinador) ON DELETE CASCADE,
++    CONSTRAINT ck_recompensa_custo   CHECK (custo_pontos > 0),
++    CONSTRAINT ck_recompensa_estoque CHECK (estoque >= 0)
++) ENGINE=InnoDB;
++
++CREATE TABLE resgate (
++    id_resgate      INT         NOT NULL AUTO_INCREMENT,
++    id_usuario      INT         NOT NULL,
++    id_recompensa   INT         NOT NULL,
++    codigo_voucher  VARCHAR(12) NOT NULL,
++    status          VARCHAR(10) NOT NULL DEFAULT 'ativo',
++    pontos_gastos   INT         NOT NULL,
++    data_resgate    DATETIME    NOT NULL DEFAULT (UTC_TIMESTAMP()),
++    PRIMARY KEY (id_resgate),
++    UNIQUE KEY uq_resgate_voucher (codigo_voucher),
++    CONSTRAINT fk_resgate_usuario FOREIGN KEY (id_usuario)
++        REFERENCES usuario (id_usuario) ON DELETE CASCADE,
++    CONSTRAINT fk_resgate_recompensa FOREIGN KEY (id_recompensa)
++        REFERENCES recompensa (id_recompensa),
++    CONSTRAINT ck_resgate_status CHECK (status IN ('ativo','usado','expirado')),
++    CONSTRAINT ck_resgate_pontos CHECK (pontos_gastos > 0)
++) ENGINE=InnoDB;
++
++CREATE TABLE conquista (
++    id_conquista  INT          NOT NULL AUTO_INCREMENT,
++    nome          VARCHAR(60)  NOT NULL,
++    descricao     VARCHAR(200),
++    id_categoria  INT          NULL,                          -- nulo = qualquer categoria
++    qtd_acoes     INT          NOT NULL,
++    PRIMARY KEY (id_conquista),
++    UNIQUE KEY uq_conquista_nome (nome),
++    CONSTRAINT fk_conquista_categoria FOREIGN KEY (id_categoria)
++        REFERENCES categoria_acao (id_categoria),
++    CONSTRAINT ck_conquista_qtd CHECK (qtd_acoes > 0)
++) ENGINE=InnoDB;
++
++CREATE TABLE usuario_conquista (
++    id_usuario     INT      NOT NULL,
++    id_conquista   INT      NOT NULL,
++    data_obtencao  DATETIME NOT NULL DEFAULT (UTC_TIMESTAMP()),
++    PRIMARY KEY (id_usuario, id_conquista),
++    CONSTRAINT fk_uc_usuario FOREIGN KEY (id_usuario)
++        REFERENCES usuario (id_usuario) ON DELETE CASCADE,
++    CONSTRAINT fk_uc_conquista FOREIGN KEY (id_conquista)
++        REFERENCES conquista (id_conquista) ON DELETE CASCADE
++) ENGINE=InnoDB;
++
++-- ---------------------------------------------------------------------
++-- Índices (consultas mais usadas: feed, perfil e ranking)
++-- O MySQL já cria índice para cada FK; aqui ficam os de ordenação.
++-- ---------------------------------------------------------------------
++CREATE INDEX idx_postagem_usuario_data ON postagem (id_usuario, data_postagem);
++CREATE INDEX idx_postagem_data         ON postagem (data_postagem);
++CREATE INDEX idx_usuario_pontos        ON usuario (pontos_ecologicos);
++
++-- ---------------------------------------------------------------------
++-- Trigger: quando a postagem é validada, credita os pontos no usuário,
++-- atualiza o nível e libera as conquistas que ele atingiu
++-- ---------------------------------------------------------------------
++DELIMITER $$
++
++CREATE TRIGGER trg_creditar_pontos
++BEFORE UPDATE ON postagem
++FOR EACH ROW
++BEGIN
++    DECLARE v_pontos INT;
++
++    IF NEW.status_validacao = 'validada' AND OLD.status_validacao <> 'validada' THEN
++        SELECT pontos_base INTO v_pontos FROM categoria_acao WHERE id_categoria = NEW.id_categoria;
++        SET NEW.pontos_gerados = v_pontos;
++
++        -- ATENÇÃO: no MySQL o SET é avaliado da esquerda para a direita e já enxerga o valor
++        -- novo das colunas. Por isso o nível vem ANTES dos pontos (no Postgres a ordem não importa).
++        UPDATE usuario
++           SET nivel = GREATEST(nivel, 1 + (pontos_ecologicos + v_pontos) DIV 500),
++               pontos_ecologicos = pontos_ecologicos + v_pontos
++         WHERE id_usuario = NEW.id_usuario;
++
++        -- +1 porque a postagem atual ainda não está gravada como validada
++        INSERT IGNORE INTO usuario_conquista (id_usuario, id_conquista)
++        SELECT NEW.id_usuario, c.id_conquista
++          FROM conquista c
++         WHERE (SELECT COUNT(*) FROM postagem p
++                 WHERE p.id_usuario = NEW.id_usuario
++                   AND p.status_validacao = 'validada'
++                   AND p.id_postagem <> NEW.id_postagem
++                   AND (c.id_categoria IS NULL OR p.id_categoria = c.id_categoria))
++               + CASE WHEN c.id_categoria IS NULL OR c.id_categoria = NEW.id_categoria THEN 1 ELSE 0 END
++               >= c.qtd_acoes;
++    END IF;
++END$$
++
++-- ---------------------------------------------------------------------
++-- Trigger: ao apagar uma postagem validada, tira os pontos e as conquistas
++-- que ela deu. Se os pontos já foram gastos, o CHECK do saldo barra o DELETE.
++-- Moderação: o back-end liga a variável de sessão @createit_moderacao = 'on'
++-- e aí o estorno só tira os pontos até zerar (não barra).
++-- ---------------------------------------------------------------------
++CREATE TRIGGER trg_estornar_pontos
++AFTER DELETE ON postagem
++FOR EACH ROW
++BEGIN
++    IF OLD.status_validacao = 'validada' THEN
++        UPDATE usuario
++           SET pontos_ecologicos = CASE
++                   WHEN @createit_moderacao = 'on'
++                   THEN GREATEST(pontos_ecologicos - OLD.pontos_gerados, 0)
++                   ELSE pontos_ecologicos - OLD.pontos_gerados
++               END
++         WHERE id_usuario = OLD.id_usuario;
++
++        -- AFTER DELETE: a postagem apagada já não entra na contagem
++        DELETE uc FROM usuario_conquista uc
++          JOIN conquista c ON c.id_conquista = uc.id_conquista
++         WHERE uc.id_usuario = OLD.id_usuario
++           AND (SELECT COUNT(*) FROM postagem p
++                 WHERE p.id_usuario = OLD.id_usuario
++                   AND p.status_validacao = 'validada'
++                   AND (c.id_categoria IS NULL OR p.id_categoria = c.id_categoria))
++               < c.qtd_acoes;
++    END IF;
++END$$
++
++-- ---------------------------------------------------------------------
++-- Resgate: tudo numa transação só (no Postgres era a função fn_resgatar).
++-- Trava o usuário e a recompensa, confere saldo, estoque e validade,
++-- debita os pontos, baixa o estoque e gera o voucher.
++-- Se qualquer passo falhar, nada é gravado (ROLLBACK) e o erro sobe com
++-- SQLSTATE '45000' e a mensagem em português.
++-- Uso: CALL sp_resgatar(id_usuario, id_recompensa);  -> devolve a coluna "codigo"
++-- Não chame dentro de outra transação aberta: o START TRANSACTION dela faria COMMIT antes.
++-- ---------------------------------------------------------------------
++CREATE PROCEDURE sp_resgatar(IN p_usuario INT, IN p_recompensa INT)
++BEGIN
++    DECLARE v_saldo    INT DEFAULT NULL;
++    DECLARE v_custo    INT DEFAULT NULL;
++    DECLARE v_estoque  INT DEFAULT NULL;
++    DECLARE v_validade DATE DEFAULT NULL;
++    DECLARE v_codigo   VARCHAR(12);
++    DECLARE v_msg      VARCHAR(100);
++    DECLARE EXIT HANDLER FOR SQLEXCEPTION
++    BEGIN
++        ROLLBACK;
++        RESIGNAL;
++    END;
++
++    START TRANSACTION;
++
++    SELECT pontos_ecologicos INTO v_saldo FROM usuario WHERE id_usuario = p_usuario FOR UPDATE;
++    IF v_saldo IS NULL THEN
++        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Usuário não encontrado';
++    END IF;
++
++    SELECT custo_pontos, estoque, validade INTO v_custo, v_estoque, v_validade
++      FROM recompensa WHERE id_recompensa = p_recompensa FOR UPDATE;
++    IF v_custo IS NULL THEN
++        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Recompensa não encontrada';
++    END IF;
++
++    IF v_validade < CURRENT_DATE() THEN
++        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Essa recompensa já expirou';
++    END IF;
++    IF v_estoque = 0 THEN
++        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Essa recompensa esgotou';
++    END IF;
++    IF v_saldo < v_custo THEN
++        SET v_msg = CONCAT('Saldo insuficiente: faltam ', v_custo - v_saldo, ' pontos');
++        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
++    END IF;
++
++    UPDATE usuario    SET pontos_ecologicos = pontos_ecologicos - v_custo WHERE id_usuario = p_usuario;
++    UPDATE recompensa SET estoque = estoque - 1 WHERE id_recompensa = p_recompensa;
++
++    gera_codigo: LOOP
++        SET v_codigo = CONCAT('CRT-', UPPER(SUBSTRING(MD5(RAND()), 1, 4)));
++        IF NOT EXISTS (SELECT 1 FROM resgate WHERE codigo_voucher = v_codigo) THEN
++            LEAVE gera_codigo;
++        END IF;
++    END LOOP;
++
++    INSERT INTO resgate (id_usuario, id_recompensa, codigo_voucher, pontos_gastos)
++    VALUES (p_usuario, p_recompensa, v_codigo, v_custo);
++
++    COMMIT;
++    SELECT v_codigo AS codigo;
++END$$
++
++DELIMITER ;
++
++-- ---------------------------------------------------------------------
++-- Views
++-- ---------------------------------------------------------------------
++-- Feed: postagem já com autor, categoria, patrocinador e totais
++CREATE VIEW vw_feed AS
++SELECT p.id_postagem, p.id_usuario, u.nome, u.usuario, p.id_categoria, c.nome AS categoria,
++       p.conteudo, p.url_foto, p.pontos_gerados, p.status_validacao, p.data_postagem,
++       p.id_desafio, pt.razao_social AS patrocinador,
++       CAST((SELECT COUNT(*) FROM curtida cu    WHERE cu.id_postagem = p.id_postagem) AS SIGNED) AS curtidas,
++       CAST((SELECT COUNT(*) FROM comentario co WHERE co.id_postagem = p.id_postagem) AS SIGNED) AS comentarios
++  FROM postagem p
++  JOIN usuario u             ON u.id_usuario = p.id_usuario
++  JOIN categoria_acao c      ON c.id_categoria = p.id_categoria
++  LEFT JOIN desafio d        ON d.id_desafio = p.id_desafio
++  LEFT JOIN patrocinador pt  ON pt.id_patrocinador = d.id_patrocinador;
++
++-- Ranking geral por pontos
++CREATE VIEW vw_ranking AS
++SELECT id_usuario, nome, usuario, pontos_ecologicos,
++       CAST(RANK() OVER (ORDER BY pontos_ecologicos DESC) AS SIGNED) AS posicao
++  FROM usuario;
++
++-- Impacto por categoria (usado no perfil e em relatórios para patrocinadores)
++CREATE VIEW vw_impacto_categoria AS
++SELECT p.id_usuario, c.nome AS categoria, CAST(COUNT(*) AS SIGNED) AS acoes,
++       CAST(SUM(p.pontos_gerados) AS SIGNED) AS pontos
++  FROM postagem p JOIN categoria_acao c ON c.id_categoria = p.id_categoria
++ WHERE p.status_validacao = 'validada'
++ GROUP BY p.id_usuario, c.nome;
+diff --git a/database-mysql/02_seed.sql b/database-mysql/02_seed.sql
+new file mode 100644
+index 0000000..0be1f8f
+--- /dev/null
++++ b/database-mysql/02_seed.sql
+@@ -0,0 +1,81 @@
++-- =====================================================================
++-- Create It - Dados de teste (MySQL 8)
++-- Todos os usuários de teste usam a senha: create123
++-- =====================================================================
++USE createit;
++
++INSERT INTO categoria_acao (nome, pontos_base) VALUES
++('Reciclagem', 30), ('Transporte', 50), ('Água', 20), ('Energia', 25);
++
++INSERT INTO patrocinador (razao_social, cnpj, porte, localizacao) VALUES
++('Empório Granel Vivo',   '11222333000101', 'pequeno', 'Alphaville'),
++('Café da Esquina',       '22333444000102', 'micro',   'Centro'),
++('Pedal Oficina de Bikes','33444555000103', 'micro',   'Vila Nova'),
++('Viveiro Mata Nativa',   '44555666000104', 'pequeno', 'Jardim das Flores');
++
++INSERT INTO usuario (nome, cpf, email, senha_hash, usuario, bio, cidade) VALUES
++('Marina Souza', '11111111111', 'marina@createit.com', '$2a$10$SaVHXylx0VnPWPCtzAU7i.j7r/cTaL3aOYnBHxbr5Y98DTDTMmy5O', 'marina.s', 'Reciclo tudo que dá.', 'Santana de Parnaíba'),
++('Rafael Lima',  '22222222222', 'rafael@createit.com', '$2a$10$SaVHXylx0VnPWPCtzAU7i.j7r/cTaL3aOYnBHxbr5Y98DTDTMmy5O', 'rafa.l',   'Bike todo dia.',        'Barueri'),
++('Carla Alves',  '33333333333', 'carla@createit.com',  '$2a$10$SaVHXylx0VnPWPCtzAU7i.j7r/cTaL3aOYnBHxbr5Y98DTDTMmy5O', 'carla.a',  'Economizando água em casa.', 'Osasco'),
++('Lucas Rocha',  '44444444444', 'lucas@createit.com',  '$2a$10$SaVHXylx0VnPWPCtzAU7i.j7r/cTaL3aOYnBHxbr5Y98DTDTMmy5O', 'lucas.recicla', 'Cantinho da reciclagem em casa.', 'São Paulo'),
++('Usuário Demo', '55555555555', 'demo@createit.com',   '$2a$10$SaVHXylx0VnPWPCtzAU7i.j7r/cTaL3aOYnBHxbr5Y98DTDTMmy5O', 'demo',     'Tentando deixar o dia a dia um pouco mais verde.', 'Santana de Parnaíba');
++
++INSERT INTO desafio (id_patrocinador, id_categoria, titulo, descricao, meta_acoes, pontos_bonus, data_inicio, data_fim) VALUES
++(1, 1, 'Semana sem plástico', 'Registre 7 ações evitando plástico descartável: sacola de pano, garrafa própria, compra a granel.', 7, 150, DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY), DATE_ADD(CURRENT_DATE(), INTERVAL 4 DAY)),
++(3, 2, 'Vá de bike 3 vezes na semana', 'Troque o carro pela bike em três deslocamentos.', 3, 80, DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY), DATE_ADD(CURRENT_DATE(), INTERVAL 5 DAY)),
++(NULL, 3, 'Banho mais curto', 'Registre 5 banhos de até 5 minutos.', 5, 50, DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY), DATE_ADD(CURRENT_DATE(), INTERVAL 6 DAY));
++
++INSERT INTO conquista (nome, descricao, id_categoria, qtd_acoes) VALUES
++('Primeira ação', 'Registrou a primeira ação validada', NULL, 1),
++('Reciclador',    '3 ações de reciclagem validadas', 1, 3),
++('Sem carro',     '3 ações de transporte validadas', 2, 3),
++('Poupa água',    '3 ações de economia de água validadas', 3, 3),
++('Energia limpa', '3 ações de economia de energia validadas', 4, 3);
++
++-- Postagens entram como 'pendente' e depois são validadas:
++-- é o UPDATE que dispara o trigger e credita os pontos.
++INSERT INTO postagem (id_usuario, id_categoria, id_desafio, conteudo, data_postagem) VALUES
++(1, 1, 1,    'Separei o lixo reciclável do condomínio e levei no ponto de coleta aqui do bairro.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 HOUR)),
++(2, 2, 2,    'Semana inteira indo pro trabalho de bike. Zero carro.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 5 HOUR)),
++(3, 3, NULL, 'Instalei um redutor de vazão no chuveiro e na pia da cozinha.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 8 HOUR)),
++(4, 1, NULL, 'Montei um cantinho de reciclagem em casa com três lixeiras: plástico, papel e vidro.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)),
++(1, 1, 1,    'Levei sacola de pano e comprei tudo a granel hoje.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)),
++(1, 1, NULL, 'Garrafas de vidro lavadas e separadas para a coleta.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 DAY)),
++(2, 2, 2,    'Fui de bike até a faculdade.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 DAY)),
++(2, 2, NULL, 'Carona solidária com dois colegas.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 3 DAY)),
++(5, 1, NULL, 'Levei as garrafas e latas da semana no ponto de coleta do bairro.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 3 HOUR)),
++(5, 2, NULL, 'Fui e voltei do trabalho de bike a semana toda.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 DAY)),
++(5, 3, NULL, 'Banho de 5 minutos a semana toda.', DATE_SUB(UTC_TIMESTAMP(), INTERVAL 4 DAY));
++
++UPDATE postagem SET status_validacao = 'validada';
++
++-- Pontos extras de histórico para deixar o ranking interessante
++UPDATE usuario SET pontos_ecologicos = pontos_ecologicos + 2150 WHERE id_usuario = 1;
++UPDATE usuario SET pontos_ecologicos = pontos_ecologicos + 1720 WHERE id_usuario = 2;
++UPDATE usuario SET pontos_ecologicos = pontos_ecologicos + 900  WHERE id_usuario = 3;
++UPDATE usuario SET pontos_ecologicos = pontos_ecologicos + 1500 WHERE id_usuario = 4;
++UPDATE usuario SET pontos_ecologicos = pontos_ecologicos + 1640 WHERE id_usuario = 5;
++UPDATE usuario SET nivel = 1 + pontos_ecologicos DIV 500;
++
++INSERT INTO seguidor (id_seguidor, id_seguido) VALUES
++(5,1),(5,2),(5,3),(1,5),(2,5),(1,2),(2,1),(3,1),(4,1);
++
++INSERT INTO curtida (id_usuario, id_postagem) VALUES
++(2,1),(3,1),(4,1),(5,1),(1,2),(3,2),(5,2),(1,3),(5,4),(1,9),(2,9);
++
++INSERT INTO comentario (id_usuario, id_postagem, texto) VALUES
++(5, 1, 'Boa! Onde fica esse ponto de coleta?'),
++(1, 9, 'Mandou bem!'),
++(3, 2, 'Inspiração pra mim.');
++
++INSERT INTO recompensa (id_patrocinador, titulo, descricao, custo_pontos, estoque, validade) VALUES
++(2, 'Café grátis levando sua caneca', 'Um café coado grátis para quem levar a própria caneca.', 500, 30, DATE_ADD(CURRENT_DATE(), INTERVAL 60 DAY)),
++(1, '10% de desconto em produtos a granel', 'Desconto em qualquer compra a granel.', 800, 50, DATE_ADD(CURRENT_DATE(), INTERVAL 90 DAY)),
++(4, 'Muda de árvore nativa para plantio', 'Uma muda de espécie nativa da Mata Atlântica.', 1200, 15, DATE_ADD(CURRENT_DATE(), INTERVAL 45 DAY)),
++(3, 'Revisão de bike com 50% off', 'Revisão completa com metade do preço.', 1500, 10, DATE_ADD(CURRENT_DATE(), INTERVAL 30 DAY)),
++(1, 'Kit sustentável: garrafa, sacola e canudo de inox', 'Kit completo para evitar descartáveis.', 2000, 5, DATE_ADD(CURRENT_DATE(), INTERVAL 30 DAY));
++
++-- Resgate de exemplo usando a procedure transacional (o nível é recalculado depois)
++CALL sp_resgatar(5, 1);
++
++UPDATE usuario SET nivel = 1 + pontos_ecologicos DIV 500;
+diff --git a/database-mysql/03_seguranca.sql b/database-mysql/03_seguranca.sql
+new file mode 100644
+index 0000000..d2cf844
+--- /dev/null
++++ b/database-mysql/03_seguranca.sql
+@@ -0,0 +1,55 @@
++-- =====================================================================
++-- Create It - Perfis de acesso (GRANT / REVOKE) - MySQL 8
++-- Rode como root (ou outro usuário com CREATE USER / GRANT) depois do 01 e do 02.
++--
++-- >>> TROQUE AS SENHAS ABAIXO antes de rodar. Não deixe senha de verdade no GitHub. <<<
++-- =====================================================================
++USE createit;
++
++-- Papéis (grupos de permissão)
++CREATE ROLE IF NOT EXISTS 'papel_app', 'papel_relatorio', 'papel_admin';
++
++-- Usuários de login
++CREATE USER IF NOT EXISTS 'app_createit'@'%'       IDENTIFIED BY 'TROQUE_ESTA_SENHA_APP';
++CREATE USER IF NOT EXISTS 'relatorio_createit'@'%' IDENTIFIED BY 'TROQUE_ESTA_SENHA_REL';
++
++-- Admin: acesso total ao banco
++GRANT ALL PRIVILEGES ON createit.* TO 'papel_admin';
++
++-- Aplicação: lê e grava dados, mas não altera a estrutura.
++-- No MySQL não dá para dar o schema inteiro e depois tirar uma tabela (REVOKE parcial),
++-- então o GRANT é tabela por tabela. Fora da lista de INSERT/UPDATE/DELETE:
++--   categoria_acao: só leitura (catálogo)
++--   resgate: sem DELETE (histórico); o INSERT vem pela procedure
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.usuario            TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.patrocinador       TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.desafio            TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.postagem           TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.seguidor           TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.curtida            TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.comentario         TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.compartilhamento   TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.filiacao           TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.recompensa         TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.conquista          TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE, DELETE ON createit.usuario_conquista  TO 'papel_app';
++GRANT SELECT, INSERT, UPDATE         ON createit.resgate            TO 'papel_app';
++GRANT SELECT                         ON createit.categoria_acao     TO 'papel_app';
++GRANT SELECT ON createit.vw_feed              TO 'papel_app';
++GRANT SELECT ON createit.vw_ranking           TO 'papel_app';
++GRANT SELECT ON createit.vw_impacto_categoria TO 'papel_app';
++GRANT EXECUTE ON PROCEDURE createit.sp_resgatar TO 'papel_app';
++
++-- Relatórios: só as views sem dados pessoais (CPF, e-mail, senha)
++GRANT SELECT ON createit.vw_ranking           TO 'papel_relatorio';
++GRANT SELECT ON createit.vw_impacto_categoria TO 'papel_relatorio';
++
++-- Liga cada usuário ao seu papel e já ativa o papel no login
++GRANT 'papel_app'       TO 'app_createit'@'%';
++GRANT 'papel_relatorio' TO 'relatorio_createit'@'%';
++SET DEFAULT ROLE 'papel_app'       TO 'app_createit'@'%';
++SET DEFAULT ROLE 'papel_relatorio' TO 'relatorio_createit'@'%';
++
++-- Observação: os triggers rodam com o direito de quem os criou (DEFINER),
++-- então o papel_app consegue creditar pontos e estornar mesmo sem UPDATE direto
++-- em todas as colunas que o trigger toca.
+diff --git a/database-mysql/README.md b/database-mysql/README.md
+new file mode 100644
+index 0000000..efec1d5
+--- /dev/null
++++ b/database-mysql/README.md
+@@ -0,0 +1,52 @@
++# Create It: banco em MySQL
++
++Versão MySQL 8 dos scripts de `database/` (que são PostgreSQL/Supabase). Sugestão: salvar esta pasta como `database-mysql/` no repositório.
++
++## Como rodar
++
++```bash
++mysql -u root -p < 01_schema.sql      # cria o banco createit, tabelas, triggers, procedure e views
++mysql -u root -p < 02_seed.sql        # dados de teste (senha de todos: create123)
++mysql -u root -p < 03_seguranca.sql   # papéis e usuários (troque as senhas antes!)
++```
++
++No Workbench, abra o arquivo e execute tudo (ele entende o `DELIMITER`). Num cliente que não entende `DELIMITER`, rode os blocos de trigger e procedure um por vez.
++
++## Mapa dos scripts
++
++| PostgreSQL | MySQL | O que mudou |
++|---|---|---|
++| `01_schema.sql` | `01_schema.sql` | Já inclui a coluna `admin` (do 07) e o trigger de estorno (do 05, na versão com moderação do 07) |
++| `02_seed.sql` | `02_seed.sql` | Datas com `DATE_SUB/DATE_ADD`, `DIV` no cálculo do nível, `CALL sp_resgatar` |
++| `03_seguranca.sql` | `03_seguranca.sql` | `CREATE ROLE`/`CREATE USER`, GRANT tabela por tabela |
++| `04_storage.sql` | (não existe) | Bucket do Supabase Storage. As fotos continuam no Supabase Storage, que o back-end já usa por chave própria, ou vão para outro lugar |
++| `05_apagar_postagem.sql` | dentro do `01` | Trigger `trg_estornar_pontos` |
++| `06_tempo_real.sql` | (não existe) | Usa `realtime.send` do Supabase. Sem ele o feed só atualiza ao recarregar (o app já funciona assim sem as variáveis `*_SUPABASE_*`) |
++| `07_admin.sql` | dentro do `01` | Coluna `admin` e trigger de estorno com moderação |
++
++## Diferenças que importam
++
++- **Schema:** o `schema createit` do Postgres virou o `DATABASE createit`.
++- **Horários:** `TIMESTAMPTZ` virou `DATETIME` em UTC (`DEFAULT (UTC_TIMESTAMP())`). No mysql2 use `timezone: 'Z'`.
++- **`fn_resgatar` virou procedure** `sp_resgatar(id_usuario, id_recompensa)`: devolve uma linha com a coluna `codigo`. Erros de regra saem com SQLSTATE `45000` e a mensagem em português (no Postgres era `P0001`). Ela abre a própria transação, então não chame dentro de outro `BEGIN`.
++- **Trigger de crédito:** no MySQL o `SET` do `UPDATE` já enxerga o valor novo das colunas já atribuídas, por isso `nivel` vem antes de `pontos_ecologicos`.
++- **Moderação:** `SET LOCAL createit.moderacao = 'on'` virou a variável de sessão `SET @createit_moderacao = 'on'` (e `SET @createit_moderacao = NULL` ao terminar, porque a variável vale para a conexão inteira, não só para a transação).
++- **Cascata não dispara trigger no MySQL.** Apagar um usuário apaga as postagens dele, mas o `trg_estornar_pontos` não roda nelas. Como a conta some junto, não faz diferença.
++- **Segurança:** o MySQL não tem REVOKE parcial dentro de um GRANT de schema inteiro. Por isso o `papel_app` recebe GRANT tabela por tabela, sem escrita em `categoria_acao` e sem DELETE em `resgate`.
++- **Comparação de texto:** a collation `utf8mb4_unicode_ci` ignora maiúsculas e acentos. `Marina@x.com` e `marina@x.com` contam como o mesmo e-mail (no Postgres eram diferentes).
++
++## O que ainda precisa mudar no back-end (`backend/src`)
++
++O back-end ainda fala PostgreSQL (`pg`). Para rodar em MySQL é preciso:
++
++- trocar `pg` por `mysql2` e reescrever `db.js` (sem `search_path`; pool com `timezone: 'Z'`);
++- `$1, $2` → `?`, e `ILIKE` → `LIKE`;
++- `RETURNING id_postagem` → usar `insertId` do resultado;
++- `rows`/`rowCount` → o mysql2 devolve `[rows, fields]` e `affectedRows`;
++- `SELECT fn_resgatar($1,$2)` → `CALL sp_resgatar(?, ?)`, tratando o erro `ER_SIGNAL_EXCEPTION` (código 1644);
++- `count(*)::int`, `false AS curtiu` e `EXISTS (...)` em `SELECT` (booleanos voltam como 0/1);
++- `SET LOCAL createit.moderacao` → `SET @createit_moderacao`.
++
++## Um aviso de segurança
++
++O `database/03_seguranca.sql` do repositório (público) tem uma senha de banco escrita. Troque essa senha no Supabase e não suba senha real no GitHub. A versão MySQL usa `TROQUE_ESTA_SENHA_...`.
+-- 
+2.43.0
+
