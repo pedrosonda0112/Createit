@@ -11,6 +11,7 @@ import Recompensas from './pages/Recompensas.jsx';
 import Perfil from './pages/Perfil.jsx';
 import Comentarios from './pages/Comentarios.jsx';
 import Admin from './pages/Admin.jsx';
+import Patrocinador from './pages/Patrocinador.jsx';
 
 function Protegida({ children }) {
   const { usuario, carregando } = useAuth();
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="perfil/:id" element={<Perfil />} />
         <Route path="postagem/:id" element={<Comentarios />} />
         <Route path="admin" element={<Admin />} />
+        <Route path="patrocinador" element={<Patrocinador />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

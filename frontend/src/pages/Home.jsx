@@ -73,6 +73,7 @@ export default function Home() {
         </div>
 
         <Link className="desafios-movel" to="/desafios"><Icone nome="award" tamanho={16} /> Ver desafios</Link>
+        {usuario.id_patrocinador && <Link className="desafios-movel" to="/patrocinador"><Icone nome="loja" tamanho={16} /> Painel do patrocinador</Link>}
         {qtdNovas > 0 && (
           <button type="button" className="novas-postagens" onClick={mostrarNovas}>
             <Icone nome="seta-cima" tamanho={16} />

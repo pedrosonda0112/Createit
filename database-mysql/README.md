@@ -10,6 +10,12 @@ mysql -u root -p < 02_seed.sql        # dados de teste (senha de todos: create12
 mysql -u root -p < 03_seguranca.sql   # papéis e usuários (troque as senhas antes!)
 ```
 
+Banco criado **antes** do acesso de patrocinadores (ex.: o do Aiven)? Rode também, uma vez só:
+
+```bash
+mysql -u root -p < 04_patrocinador.sql  # coluna usuario.id_patrocinador, views do painel e conta de teste
+```
+
 No Workbench, abra o arquivo e execute tudo (ele entende o `DELIMITER`). Num cliente que não entende `DELIMITER`, rode os blocos de trigger e procedure um por vez.
 
 ## Mapa dos scripts
@@ -19,6 +25,7 @@ No Workbench, abra o arquivo e execute tudo (ele entende o `DELIMITER`). Num cli
 | `01_schema.sql` | `01_schema.sql` | Já inclui a coluna `admin` (do 07) e o trigger de estorno (do 05, na versão com moderação do 07) |
 | `02_seed.sql` | `02_seed.sql` | Datas com `DATE_SUB/DATE_ADD`, `DIV` no cálculo do nível, `CALL sp_resgatar` |
 | `03_seguranca.sql` | `03_seguranca.sql` | `CREATE ROLE`/`CREATE USER`, GRANT tabela por tabela |
+| (não existe) | `04_patrocinador.sql` | Migração do acesso de patrocinadores para bancos que já existiam. Num banco novo o 01 e o 02 já trazem tudo |
 | `04_storage.sql` | (não existe) | Bucket do Supabase Storage. As fotos continuam no Supabase Storage, que o back-end já usa por chave própria, ou vão para outro lugar |
 | `05_apagar_postagem.sql` | dentro do `01` | Trigger `trg_estornar_pontos` |
 | `06_tempo_real.sql` | (não existe) | Usa `realtime.send` do Supabase. Sem ele o feed só atualiza ao recarregar (o app já funciona assim sem as variáveis `*_SUPABASE_*`) |

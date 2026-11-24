@@ -451,3 +451,24 @@ h1,h2,h3 {letter-spacing:-.035em}
 .saldo-semana {margin:5px 0;color:#e6eddd;font-size:13px}
 .saldo-semana b {color:var(--amarelo)}
 .saldo-folha {box-shadow:0 6px 14px #0003}
+
+/* Painel do patrocinador */
+.painel-abas {flex-wrap:wrap;gap:12px}
+.painel-lista {display:flex;flex-direction:column;gap:14px}
+.painel-item {padding:18px;display:flex;flex-direction:column;gap:8px}
+.painel-item h3 {font-size:18px}
+.painel-item p {font-size:14px;white-space:pre-line}
+.painel-numeros {display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--texto-suave);padding:10px 0;border-top:1px solid var(--borda);border-bottom:1px solid var(--borda);margin-top:4px}
+.painel-numeros strong {color:var(--texto);font-size:15px}
+.painel-acoes {display:flex;flex-wrap:wrap;gap:8px}
+.painel-apagar {color:var(--erro)}
+.painel-voucher {padding:18px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+.painel-voucher .campo {flex:1;min-width:200px}
+.painel-voucher input {text-transform:uppercase;letter-spacing:.08em}
+.situacao {display:inline-flex;align-items:center;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:var(--superficie-2);color:var(--texto-suave)}
+.situacao-ativo,.situacao-ativa {background:var(--salvia);color:var(--gelo)}
+.situacao-agendado,.situacao-esgotada {background:var(--amarelo);color:var(--texto)}
+.situacao-usado {background:var(--gelo);color:var(--superficie)}
+.campos-dupla {display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:480px){.campos-dupla{grid-template-columns:1fr}}
+.selo-patrocinador {display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--amarelo);color:var(--texto)}

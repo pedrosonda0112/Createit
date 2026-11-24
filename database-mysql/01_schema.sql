@@ -29,6 +29,7 @@ CREATE TABLE usuario (
     pontos_ecologicos  INT          NOT NULL DEFAULT 0,
     nivel              INT          NOT NULL DEFAULT 1,
     admin              BOOLEAN      NOT NULL DEFAULT FALSE,
+    id_patrocinador    INT          NULL,                     -- conta de empresa parceira (FK logo abaixo)
     data_cadastro      DATETIME     NOT NULL DEFAULT (UTC_TIMESTAMP()),
     PRIMARY KEY (id_usuario),
     UNIQUE KEY uq_usuario_cpf (cpf),
@@ -57,6 +58,13 @@ CREATE TABLE patrocinador (
     UNIQUE KEY uq_patrocinador_cnpj (cnpj),
     CONSTRAINT ck_patrocinador_porte CHECK (porte IN ('micro','pequeno','medio','grande'))
 ) ENGINE=InnoDB;
+
+-- Conta de patrocinador: o usuário que tem id_patrocinador cria os desafios e as
+-- recompensas daquela empresa. Uma empresa pode ter várias contas (1:N).
+-- A FK fica aqui porque a tabela patrocinador é criada depois de usuario.
+ALTER TABLE usuario
+    ADD CONSTRAINT fk_usuario_patrocinador FOREIGN KEY (id_patrocinador)
+        REFERENCES patrocinador (id_patrocinador) ON DELETE SET NULL;
 
 CREATE TABLE desafio (
     id_desafio       INT          NOT NULL AUTO_INCREMENT,
@@ -395,3 +403,32 @@ SELECT p.id_usuario, c.nome AS categoria, CAST(COUNT(*) AS SIGNED) AS acoes,
   FROM postagem p JOIN categoria_acao c ON c.id_categoria = p.id_categoria
  WHERE p.status_validacao = 'validada'
  GROUP BY p.id_usuario, c.nome;
+
+-- Painel do patrocinador: cada desafio com a situação e o engajamento
+CREATE VIEW vw_desafio_painel AS
+SELECT d.id_desafio, d.id_patrocinador, d.id_categoria, c.nome AS categoria,
+       d.titulo, d.descricao, d.meta_acoes, d.pontos_bonus, d.data_inicio, d.data_fim,
+       CASE WHEN CURRENT_DATE() < d.data_inicio THEN 'agendado'
+            WHEN CURRENT_DATE() > d.data_fim    THEN 'encerrado'
+            ELSE 'ativo' END AS situacao,
+       CAST((SELECT COUNT(DISTINCT p.id_usuario) FROM postagem p
+              WHERE p.id_desafio = d.id_desafio) AS SIGNED) AS participantes,
+       CAST((SELECT COUNT(*) FROM postagem p
+              WHERE p.id_desafio = d.id_desafio AND p.status_validacao = 'validada') AS SIGNED) AS acoes_validadas,
+       CAST((SELECT COUNT(*) FROM usuario u
+              WHERE (SELECT COUNT(*) FROM postagem p
+                      WHERE p.id_desafio = d.id_desafio AND p.id_usuario = u.id_usuario
+                        AND p.status_validacao = 'validada') >= d.meta_acoes) AS SIGNED) AS concluintes
+  FROM desafio d JOIN categoria_acao c ON c.id_categoria = d.id_categoria;
+
+-- Painel do patrocinador: cada recompensa com a situação e os resgates
+CREATE VIEW vw_recompensa_painel AS
+SELECT r.id_recompensa, r.id_patrocinador, r.titulo, r.descricao, r.custo_pontos, r.estoque, r.validade,
+       CASE WHEN r.validade < CURRENT_DATE() THEN 'encerrada'
+            WHEN r.estoque = 0              THEN 'esgotada'
+            ELSE 'ativa' END AS situacao,
+       CAST(COUNT(rg.id_resgate) AS SIGNED)                        AS resgates,
+       CAST(COALESCE(SUM(rg.status = 'usado'), 0) AS SIGNED)       AS usados,
+       CAST(COALESCE(SUM(rg.pontos_gastos), 0) AS SIGNED)          AS pontos_trocados
+  FROM recompensa r LEFT JOIN resgate rg ON rg.id_recompensa = r.id_recompensa
+ GROUP BY r.id_recompensa, r.id_patrocinador, r.titulo, r.descricao, r.custo_pontos, r.estoque, r.validade;

@@ -26,3 +26,12 @@ export async function soAdmin(req, res, next) {
   if (!(await ehAdmin(req.userId))) return res.status(403).json({ erro: 'Só administradores podem fazer isso.' });
   next();
 }
+
+// Usar depois do auth. Também conferido no banco a cada pedido:
+// desvincular a conta da empresa corta o acesso na hora.
+export async function soPatrocinador(req, res, next) {
+  const { rows } = await query('SELECT id_patrocinador FROM usuario WHERE id_usuario = $1', [req.userId]);
+  if (!rows[0]?.id_patrocinador) return res.status(403).json({ erro: 'Só contas de patrocinador podem fazer isso.' });
+  req.idPatrocinador = rows[0].id_patrocinador;
+  next();
+}

@@ -70,7 +70,7 @@ npm run dev              # app em http://localhost:5173
 
 Para o feed se atualizar sozinho, copie `frontend/.env.example` para `frontend/.env` e preencha `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY`. Na Vercel, cadastre as duas em **Settings > Environment Variables**.
 
-Entre com **demo@createit.com** e a senha **create123** (todos os usuários de teste usam essa senha).
+Entre com **demo@createit.com** e a senha **create123** (todos os usuários de teste usam essa senha). Para ver o painel de empresa, entre com **patrocinador@createit.com**.
 
 ### 4. App mobile (Android / iOS)
 
@@ -122,6 +122,21 @@ UPDATE createit.usuario SET admin = true WHERE email = 'voce@email.com';
 ```
 
 Os outros podem ser promovidos pelo painel.
+
+### Patrocinadores
+
+Uma conta ligada a uma empresa parceira (`usuario.id_patrocinador`) ganha o menu **Patrocinador** no site (no celular, o atalho fica na Início). Lá a empresa:
+
+- **cria, edita e encerra desafios**: título, descrição, categoria das ações, meta, bônus e período;
+- **cria, edita e encerra recompensas**: custo em pontos, estoque e validade;
+- acompanha participantes, ações validadas, quem concluiu, resgates e pontos trocados (views `vw_desafio_painel` e `vw_recompensa_painel`);
+- **dá baixa nos vouchers** que o cliente apresenta no balcão (o resgate passa de `ativo` para `usado`).
+
+*Encerrar* tira do ar na hora e mantém o histórico. *Apagar* só é permitido enquanto ninguém participou do desafio ou resgatou a recompensa. A API confere o vínculo no banco a cada pedido e só deixa a empresa mexer nos itens dela.
+
+O vínculo é feito pelo admin: no painel **Admin**, cadastre a empresa em **Empresas parceiras > Nova** e, depois, edite a conta da pessoa e escolha a empresa em **Conta de patrocinador**. Conta de teste: `patrocinador@createit.com` (Empório Granel Vivo).
+
+No banco que já existia antes dessa função (ex.: o do Aiven), rode uma vez o `database-mysql/04_patrocinador.sql`.
 
 ### Rodando com Postgres local (opcional)
 

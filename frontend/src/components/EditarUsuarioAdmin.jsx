@@ -6,12 +6,13 @@ import Icone from './Icone.jsx';
 const limparUsuario = (v) => v.toLowerCase().replace(/[^a-z0-9._]/g, '');
 
 // Painel admin: editar qualquer conta (dados, pontos, nível e acesso de admin) ou apagá-la
-export default function EditarUsuarioAdmin({ alvo, aoFechar, aoSalvar, aoApagar }) {
+export default function EditarUsuarioAdmin({ alvo, patrocinadores = [], aoFechar, aoSalvar, aoApagar }) {
   const { usuario, atualizar } = useAuth();
   const eu = alvo.id_usuario === usuario.id_usuario;
   const [dados, setDados] = useState({
     nome: alvo.nome, usuario: alvo.usuario, email: alvo.email, cidade: alvo.cidade || '', bio: alvo.bio || '',
     pontos_ecologicos: String(alvo.pontos_ecologicos), nivel: String(alvo.nivel), admin: alvo.admin,
+    id_patrocinador: alvo.id_patrocinador ? String(alvo.id_patrocinador) : '',
   });
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -34,7 +35,10 @@ export default function EditarUsuarioAdmin({ alvo, aoFechar, aoSalvar, aoApagar 
     try {
       const u = await api(`/admin/usuarios/${alvo.id_usuario}`, {
         method: 'PUT',
-        body: { ...dados, pontos_ecologicos: Number(dados.pontos_ecologicos), nivel: Number(dados.nivel) },
+        body: {
+          ...dados, pontos_ecologicos: Number(dados.pontos_ecologicos), nivel: Number(dados.nivel),
+          id_patrocinador: dados.id_patrocinador ? Number(dados.id_patrocinador) : null,
+        },
       });
       if (eu) atualizar(u);
       aoSalvar(u);
@@ -94,6 +98,14 @@ export default function EditarUsuarioAdmin({ alvo, aoFechar, aoSalvar, aoApagar 
             <input type="number" min={1} step={1} value={dados.nivel} onChange={mudar('nivel')} required />
           </label>
         </div>
+        <label className="campo">
+          Conta de patrocinador
+          <select value={dados.id_patrocinador} onChange={mudar('id_patrocinador')}>
+            <option value="">Não, é uma conta pessoal</option>
+            {patrocinadores.map((p) => <option key={p.id_patrocinador} value={p.id_patrocinador}>{p.razao_social}</option>)}
+          </select>
+          <small>Com uma empresa escolhida, a conta ganha o painel para criar desafios e recompensas dela.</small>
+        </label>
         <label className="admin-checkbox">
           <input type="checkbox" checked={dados.admin} onChange={mudar('admin')} disabled={eu} />
           <span>

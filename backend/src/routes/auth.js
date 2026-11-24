@@ -5,7 +5,7 @@ import { query, ERRO } from '../db.js';
 import { auth } from '../middleware/auth.js';
 
 const r = Router();
-const PUBLICO = 'id_usuario, nome, usuario, email, bio, cidade, pontos_ecologicos, nivel, admin';
+const PUBLICO = 'id_usuario, nome, usuario, email, bio, cidade, pontos_ecologicos, nivel, admin, id_patrocinador';
 const gerarToken = (id) => jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
 r.post('/cadastro', async (req, res) => {

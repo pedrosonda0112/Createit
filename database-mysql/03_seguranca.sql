@@ -39,6 +39,8 @@ GRANT SELECT                         ON createit.categoria_acao     TO 'papel_ap
 GRANT SELECT ON createit.vw_feed              TO 'papel_app';
 GRANT SELECT ON createit.vw_ranking           TO 'papel_app';
 GRANT SELECT ON createit.vw_impacto_categoria TO 'papel_app';
+GRANT SELECT ON createit.vw_desafio_painel    TO 'papel_app';
+GRANT SELECT ON createit.vw_recompensa_painel TO 'papel_app';
 GRANT EXECUTE ON PROCEDURE createit.sp_resgatar TO 'papel_app';
 
 -- Relatórios: só as views sem dados pessoais (CPF, e-mail, senha)

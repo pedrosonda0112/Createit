@@ -21,6 +21,10 @@ INSERT INTO usuario (nome, cpf, email, senha_hash, usuario, bio, cidade) VALUES
 ('Lucas Rocha',  '44444444444', 'lucas@createit.com',  '$2a$10$SaVHXylx0VnPWPCtzAU7i.j7r/cTaL3aOYnBHxbr5Y98DTDTMmy5O', 'lucas.recicla', 'Cantinho da reciclagem em casa.', 'São Paulo'),
 ('Usuário Demo', '55555555555', 'demo@createit.com',   '$2a$10$SaVHXylx0VnPWPCtzAU7i.j7r/cTaL3aOYnBHxbr5Y98DTDTMmy5O', 'demo',     'Tentando deixar o dia a dia um pouco mais verde.', 'Santana de Parnaíba');
 
+-- Conta de patrocinador (Empório Granel Vivo): cria desafios e recompensas da empresa
+INSERT INTO usuario (nome, cpf, email, senha_hash, usuario, bio, cidade, id_patrocinador) VALUES
+('Empório Granel Vivo', '66666666666', 'patrocinador@createit.com', '$2a$10$SaVHXylx0VnPWPCtzAU7i.j7r/cTaL3aOYnBHxbr5Y98DTDTMmy5O', 'granelvivo', 'Mercearia a granel. Traga seu pote!', 'Alphaville', 1);
+
 INSERT INTO desafio (id_patrocinador, id_categoria, titulo, descricao, meta_acoes, pontos_bonus, data_inicio, data_fim) VALUES
 (1, 1, 'Semana sem plástico', 'Registre 7 ações evitando plástico descartável: sacola de pano, garrafa própria, compra a granel.', 7, 150, DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY), DATE_ADD(CURRENT_DATE(), INTERVAL 4 DAY)),
 (3, 2, 'Vá de bike 3 vezes na semana', 'Troque o carro pela bike em três deslocamentos.', 3, 80, DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY), DATE_ADD(CURRENT_DATE(), INTERVAL 5 DAY)),

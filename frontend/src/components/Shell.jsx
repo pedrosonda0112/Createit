@@ -52,7 +52,6 @@ export default function Shell() {
           <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar pessoas, ações ou recompensas" aria-label="Buscar" />
         </form>
         <div className="topo-acoes">
-          
           <button className="icone-btn" aria-label="Notificações"><Icone nome="bell" tamanho={22} /></button>
           <Link to="/perfil" aria-label="Meu perfil"><Avatar nome={usuario.nome} /></Link>
         </div>
@@ -66,6 +65,9 @@ export default function Shell() {
               <Icone nome={i.icone} />{i.nome}
             </NavLink>
           ))}
+          {usuario.id_patrocinador && (
+            <NavLink to="/patrocinador" className={({ isActive }) => (isActive ? 'ativo' : '')}><Icone nome="loja" />Patrocinador</NavLink>
+          )}
           {usuario.admin && (
             <NavLink to="/admin" className={({ isActive }) => (isActive ? 'ativo' : '')}><Icone nome="escudo" />Admin</NavLink>
           )}

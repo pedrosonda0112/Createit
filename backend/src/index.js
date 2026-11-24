@@ -6,6 +6,7 @@ import postagensRoutes from './routes/postagens.js';
 import usuariosRoutes from './routes/usuarios.js';
 import geralRoutes from './routes/geral.js';
 import adminRoutes from './routes/admin.js';
+import patrocinadorRoutes from './routes/patrocinador.js';
 
 import { pastaFotos } from './storage.js';
 
@@ -24,6 +25,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/postagens', postagensRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/patrocinador', patrocinadorRoutes);
 app.use('/api', geralRoutes);
 
 // Erro não tratado: loga no servidor e devolve mensagem genérica
