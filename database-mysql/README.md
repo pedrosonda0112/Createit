@@ -20,6 +20,7 @@ Para encher o site para uma apresentação (opcional, pode rodar mais de uma vez
 
 ```bash
 mysql -u root -p < 05_dados_demo.sql    # 13 contas, 13 desafios, 12 recompensas, 49 postagens, curtidas, comentários e vouchers
+mysql -u root -p < 06_resgates_demo.sql # mais 14 vouchers (para bancos sem as contas antigas do seed)
 ```
 
 No Workbench, abra o arquivo e execute tudo (ele entende o `DELIMITER`). Num cliente que não entende `DELIMITER`, rode os blocos de trigger e procedure um por vez.
@@ -32,6 +33,7 @@ No Workbench, abra o arquivo e execute tudo (ele entende o `DELIMITER`). Num cli
 | `02_seed.sql` | `02_seed.sql` | Datas com `DATE_SUB/DATE_ADD`, `DIV` no cálculo do nível, `CALL sp_resgatar` |
 | `03_seguranca.sql` | `03_seguranca.sql` | `CREATE ROLE`/`CREATE USER`, GRANT tabela por tabela |
 | (não existe) | `04_patrocinador.sql` | Migração do acesso de patrocinadores para bancos que já existiam. Num banco novo o 01 e o 02 já trazem tudo |
+| (não existe) | `06_resgates_demo.sql` | Complemento do 05: pontos de histórico para as contas novas e 14 vouchers |
 | (não existe) | `05_dados_demo.sql` | Dados de demonstração. Não dá ponto de graça: os pontos vêm do trigger de validação |
 | `04_storage.sql` | (não existe) | Bucket do Supabase Storage. As fotos continuam no Supabase Storage, que o back-end já usa por chave própria, ou vão para outro lugar |
 | `05_apagar_postagem.sql` | dentro do `01` | Trigger `trg_estornar_pontos` |
