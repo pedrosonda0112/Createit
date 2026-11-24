@@ -6,20 +6,39 @@ import { apagarFoto, enviarFoto, storageConfigurado } from '../storage.js';
 
 const r = Router();
 
-// Feed: "seguindo" = quem eu sigo + eu; "alta" = mais curtidas dos últimos 7 dias
+// Feed: "todas" = todas as publicações, das mais novas para as mais antigas (padrão);
+// "seguindo" = só quem eu sigo + eu; "alta" = mais curtidas dos últimos 7 dias.
+// Em "todas" e "seguindo", ?antes=<id_postagem> traz a página seguinte (30 por vez).
+const FILTROS = ['todas', 'seguindo', 'alta'];
+const POR_PAGINA = 30;
+
 r.get('/feed', auth, async (req, res) => {
-  const filtro = req.query.filtro === 'alta' ? 'alta' : 'seguindo';
-  const sql = filtro === 'alta'
-    ? `SELECT f.*, EXISTS (SELECT 1 FROM curtida c WHERE c.id_postagem = f.id_postagem AND c.id_usuario = $1) AS curtiu
-         FROM vw_feed f
-        WHERE f.status_validacao <> 'recusada' AND f.data_postagem > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
-        ORDER BY f.curtidas DESC, f.data_postagem DESC LIMIT 30`
-    : `SELECT f.*, EXISTS (SELECT 1 FROM curtida c WHERE c.id_postagem = f.id_postagem AND c.id_usuario = $1) AS curtiu
-         FROM vw_feed f
-        WHERE f.status_validacao <> 'recusada'
-          AND (f.id_usuario = $1 OR f.id_usuario IN (SELECT id_seguido FROM seguidor WHERE id_seguidor = $1))
-        ORDER BY f.data_postagem DESC LIMIT 30`;
-  const { rows } = await query(sql, [req.userId]);
+  const filtro = FILTROS.includes(req.query.filtro) ? req.query.filtro : 'todas';
+  const antes = Number(req.query.antes);
+  const params = [req.userId];
+  let onde = "f.status_validacao <> 'recusada'";
+  let ordem = 'f.data_postagem DESC, f.id_postagem DESC';
+
+  if (filtro === 'alta') {
+    onde += ' AND f.data_postagem > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)';
+    ordem = 'f.curtidas DESC, f.data_postagem DESC';
+  }
+  if (filtro === 'seguindo') {
+    onde += ' AND (f.id_usuario = $1 OR f.id_usuario IN (SELECT id_seguido FROM seguidor WHERE id_seguidor = $1))';
+  }
+  // Paginação por cursor: continua de onde a última postagem da tela parou
+  if (filtro !== 'alta' && Number.isInteger(antes) && antes > 0) {
+    params.push(antes);
+    onde += ' AND (f.data_postagem, f.id_postagem) < (SELECT data_postagem, id_postagem FROM postagem WHERE id_postagem = $2)';
+  }
+
+  const { rows } = await query(
+    `SELECT f.*, EXISTS (SELECT 1 FROM curtida c WHERE c.id_postagem = f.id_postagem AND c.id_usuario = $1) AS curtiu
+       FROM vw_feed f
+      WHERE ${onde}
+      ORDER BY ${ordem} LIMIT ${POR_PAGINA}`,
+    params
+  );
   res.json(rows.map((p) => ({ ...p, curtiu: Boolean(p.curtiu) })));
 });
 

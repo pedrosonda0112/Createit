@@ -10,12 +10,26 @@ import { cor, fonte, raio } from '../../../lib/tema.js';
 import Icone from '../../../components/Icone.jsx';
 import Postagem from '../../../components/Postagem.jsx';
 import Tela from '../../../components/Tela.jsx';
-import { Avatar, Card, Chip, Erro, s as ui, Texto, Vazio } from '../../../components/ui.jsx';
+import { Avatar, Botao, Card, Chip, Erro, s as ui, Texto, Vazio } from '../../../components/ui.jsx';
+
+const POR_PAGINA = 30;
+const ABAS = [['todas', 'Todas'], ['seguindo', 'Seguindo'], ['alta', 'Em alta']];
+const VAZIO = {
+  todas: 'Ninguém publicou ainda. Registre a primeira ação da comunidade!',
+  seguindo: 'Você ainda não segue ninguém. Encontre pessoas na busca ou veja a aba Todas.',
+  alta: 'Nenhuma postagem curtida nos últimos 7 dias.',
+};
 
 export default function Feed() {
   const { usuario } = useAuth();
-  const [filtro, setFiltro] = useState('seguindo');
-  const carregar = useCallback(() => api(`/postagens/feed?filtro=${filtro}`), [filtro]);
+  const [filtro, setFiltro] = useState('todas');
+  // A API manda 30 por vez: se veio a página cheia, pode haver mais
+  const [temMais, setTemMais] = useState(false);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  const carregar = useCallback(() => api(`/postagens/feed?filtro=${filtro}`).then((lista) => {
+    setTemMais(filtro !== 'alta' && lista.length === POR_PAGINA);
+    return lista;
+  }), [filtro]);
   const { dados: posts, setDados: setPosts, erro, atualizando, atualizar } = useDados(carregar);
   // Feed novo já buscado, esperando a pessoa tocar em "novas postagens"
   const [novo, setNovo] = useState(null);
@@ -24,16 +38,17 @@ export default function Feed() {
 
   useEffect(() => () => clearTimeout(espera.current), []);
 
-  // Alguém postou: a API diz se entra no meu feed (sigo a pessoa?). A lista não pula
-  // sozinha embaixo de quem está lendo; aparece o botão. Só no "Seguindo": no
-  // "Em alta" uma postagem nova (sem curtidas) não sobe para o topo.
+  // Alguém postou: a lista não pula sozinha embaixo de quem está lendo; aparece o botão.
+  // Em "Todas" qualquer postagem entra; em "Seguindo" a API só devolve quem eu sigo.
+  // No "Em alta" uma postagem nova (sem curtidas) não sobe para o topo.
   // As minhas já entram ao voltar da tela de registrar.
   useAoVivo((evento, dados) => {
-    if (evento !== 'nova_postagem' || filtro !== 'seguindo' || dados.id_usuario === usuario.id_usuario) return;
+    if (evento !== 'nova_postagem' || filtro === 'alta' || dados.id_usuario === usuario.id_usuario) return;
     // Várias postagens seguidas viram uma busca só
     clearTimeout(espera.current);
+    const aba = filtro;
     espera.current = setTimeout(() => {
-      api('/postagens/feed?filtro=seguindo').then((lista) => setNovo({ filtro: 'seguindo', lista })).catch(() => {});
+      api(`/postagens/feed?filtro=${aba}`).then((lista) => setNovo({ filtro: aba, lista })).catch(() => {});
     }, 800);
   });
 
@@ -42,8 +57,23 @@ export default function Feed() {
     ? novo.lista.filter((p) => !posts.some((x) => x.id_postagem === p.id_postagem)).length
     : 0;
 
+  async function carregarMais() {
+    const ultima = posts[posts.length - 1];
+    setCarregandoMais(true);
+    try {
+      const mais = await api(`/postagens/feed?filtro=${filtro}&antes=${ultima.id_postagem}`);
+      setPosts((l) => [...l, ...mais.filter((p) => !l.some((x) => x.id_postagem === p.id_postagem))]);
+      setTemMais(mais.length === POR_PAGINA);
+    } catch {
+      setTemMais(false);
+    } finally {
+      setCarregandoMais(false);
+    }
+  }
+
   function mostrarNovas() {
     setPosts(novo.lista);
+    setTemMais(novo.lista.length === POR_PAGINA);
     setNovo(null);
     rolagem.current?.scrollTo({ y: 0, animated: true });
   }
@@ -85,8 +115,9 @@ export default function Feed() {
       <View style={ui.linhaEntre}>
         <Texto titulo estilo={{ fontSize: 26 }}>Feed</Texto>
         <View style={ui.chips}>
-          <Chip ativo={filtro === 'seguindo'} onPress={() => trocarFiltro('seguindo')}>Seguindo</Chip>
-          <Chip ativo={filtro === 'alta'} onPress={() => trocarFiltro('alta')}>Em alta</Chip>
+          {ABAS.map(([id, nome]) => (
+            <Chip key={id} ativo={filtro === id} onPress={() => trocarFiltro(id)}>{nome}</Chip>
+          ))}
         </View>
       </View>
 
@@ -102,10 +133,13 @@ export default function Feed() {
 
       <Erro>{erro}</Erro>
       {posts === null && !erro && <Vazio>Carregando o feed…</Vazio>}
-      {posts?.length === 0 && <Vazio>Nada por aqui ainda. Siga outras pessoas pela busca ou registre sua primeira ação.</Vazio>}
+      {posts?.length === 0 && <Vazio>{VAZIO[filtro]}</Vazio>}
       {posts?.map((p) => (
         <Postagem key={p.id_postagem} post={p} aoApagar={(id) => setPosts((l) => l.filter((x) => x.id_postagem !== id))} />
       ))}
+      {temMais && posts?.length > 0 && (
+        <Botao tipo="secundario" pequeno carregando={carregandoMais} onPress={carregarMais} estilo={{ alignSelf: 'center' }}>Carregar mais</Botao>
+      )}
     </Tela>
   );
 }
