@@ -134,7 +134,7 @@ Uma conta ligada a uma empresa parceira (`usuario.id_patrocinador`) ganha o menu
 
 *Encerrar* tira do ar na hora e mantém o histórico. *Apagar* só é permitido enquanto ninguém participou do desafio ou resgatou a recompensa. A API confere o vínculo no banco a cada pedido e só deixa a empresa mexer nos itens dela.
 
-O vínculo é feito pelo admin: no painel **Admin**, cadastre a empresa em **Empresas parceiras > Nova** e, depois, edite a conta da pessoa e escolha a empresa em **Conta de patrocinador**. Conta de teste: `patrocinador@createit.com` (Empório Granel Vivo).
+O vínculo é feito pelo admin: no painel **Admin**, cadastre a empresa em **Empresas parceiras > Nova** e, depois, edite a conta da pessoa e escolha a empresa em **Conta de patrocinador**. Conta de teste: `patrocinador@createit.com` (Empório Granel Vivo). Depois do `05_dados_demo.sql` também existem `cafe@`, `pedal@` e `viveiro@createit.com`.
 
 No banco que já existia antes dessa função (ex.: o do Aiven), rode uma vez o `database-mysql/04_patrocinador.sql`.
 
