@@ -39,9 +39,9 @@ export default function Recompensas() {
   const grade = lista?.slice(0, -1) || [];
 
   return (
-    <div className="conteudo">
+    <div className="conteudo recompensas">
       <div className="coluna-principal">
-        <h1 style={{ fontSize: 28 }}>Recompensas</h1>
+        <header><small className="sobretitulo">Recompensas</small><h1>Troque impacto por benefícios</h1></header>
         {lista === null && <p className="vazio">Carregando recompensas…</p>}
         {destaque && (
           <section className="destaque">

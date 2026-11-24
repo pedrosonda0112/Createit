@@ -43,28 +43,30 @@ r.post('/', auth, receberFoto, async (req, res) => {
     }
   }
 
-  const client = await conectar();
+  let client;
+  let novo;
   try {
+    client = await conectar();
     await client.query('BEGIN');
-    const novo = await client.query(
+    novo = await client.query(
       `INSERT INTO postagem (id_usuario, id_categoria, id_desafio, conteudo, url_foto)
        VALUES ($1, $2, $3, $4, $5)`,
       [req.userId, id_categoria, id_desafio || null, conteudo.trim(), urlFoto]
     );
     await client.query(`UPDATE postagem SET status_validacao = 'validada' WHERE id_postagem = $1`, [novo.insertId]);
     await client.query('COMMIT');
-    const post = await query(`SELECT * FROM vw_feed WHERE id_postagem = $1`, [novo.insertId]);
-    const saldo = await query(`SELECT pontos_ecologicos, nivel FROM usuario WHERE id_usuario = $1`, [req.userId]);
-    res.status(201).json({ postagem: { ...post.rows[0], curtiu: false }, ...saldo.rows[0] });
   } catch (e) {
     // A postagem não foi gravada: a foto ficaria órfã no bucket.
     // Vem antes do ROLLBACK para acontecer mesmo se a conexão tiver caído.
     if (urlFoto) apagarFoto(urlFoto).catch((err) => console.error(err));
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK');
     throw e;
   } finally {
-    client.release();
+    client?.release();
   }
+    const post = await query(`SELECT * FROM vw_feed WHERE id_postagem = $1`, [novo.insertId]);
+    const saldo = await query(`SELECT pontos_ecologicos, nivel FROM usuario WHERE id_usuario = $1`, [req.userId]);
+    res.status(201).json({ postagem: { ...post.rows[0], curtiu: false }, ...saldo.rows[0] });
 });
 
 // Uma postagem só (tela de comentários)

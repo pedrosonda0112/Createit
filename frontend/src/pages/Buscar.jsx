@@ -45,9 +45,9 @@ export default function Buscar() {
   const mostra = (tipo) => filtro === 'tudo' || filtro === tipo;
 
   return (
-    <div className="conteudo">
+    <div className="conteudo buscar">
       <div className="coluna-principal">
-        <h1 style={{ fontSize: 28 }}>Buscar</h1>
+        <header><small className="sobretitulo">Explorar</small><h1>O que você procura?</h1></header>
         <form className="busca-topo" style={{ flex: 'none', height: 56, borderColor: 'var(--gelo)', background: 'var(--superficie)' }}
           onSubmit={(e) => { e.preventDefault(); setParams(texto.trim() ? { q: texto.trim() } : {}); }} role="search">
           <Icone nome="search" tamanho={22} style={{ color: 'var(--gelo)' }} />

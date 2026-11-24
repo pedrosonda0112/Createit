@@ -9,6 +9,17 @@ r.get('/categorias', async (_req, res) => {
   res.json(rows);
 });
 
+r.get('/saldo-semana', auth, async (req, res) => {
+  const { rows } = await query(
+    `SELECT COALESCE(SUM(pontos_gerados), 0) AS pontos
+       FROM postagem WHERE id_usuario = $1 AND status_validacao = 'validada'
+       AND data_postagem >= DATE_ADD(DATE_SUB(DATE(UTC_TIMESTAMP() - INTERVAL 3 HOUR),
+           INTERVAL WEEKDAY(UTC_TIMESTAMP() - INTERVAL 3 HOUR) DAY), INTERVAL 3 HOUR)`,
+    [req.userId]
+  );
+  res.json({ pontos: Number(rows[0].pontos) });
+});
+
 r.get('/ranking', auth, async (_req, res) => {
   const { rows } = await query(`SELECT * FROM vw_ranking ORDER BY posicao LIMIT 10`);
   res.json(rows);

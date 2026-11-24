@@ -13,9 +13,9 @@ export default function Desafios() {
 
   const [destaque, ...outros] = lista || [];
   return (
-    <div className="conteudo">
+    <div className="conteudo desafios">
       <div className="coluna-principal">
-        <h1 style={{ fontSize: 28 }}>Desafios</h1>
+        <header><small className="sobretitulo">Desafios</small><h1>Pequenos hábitos, grande impacto</h1></header>
         {lista === null && <p className="vazio">Carregando desafios…</p>}
         {lista?.length === 0 && <p className="vazio">Nenhum desafio ativo agora. Volte em breve.</p>}
         {destaque && (

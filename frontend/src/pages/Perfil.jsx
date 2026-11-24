@@ -46,7 +46,7 @@ export default function Perfil() {
     <div className="conteudo">
       <div className="coluna-principal">
         <section className="card" style={{ overflow: 'hidden' }}>
-          <div style={{ height: 96, background: 'var(--gelo)' }} />
+          <div className="capa-perfil" />
           <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: -48, gap: 12, flexWrap: 'wrap' }}>
               <span style={{ borderRadius: '50%', boxShadow: '0 0 0 4px var(--superficie)' }}><Avatar nome={p.nome} tamanho={96} /></span>

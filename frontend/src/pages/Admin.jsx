@@ -46,13 +46,17 @@ export default function Admin() {
     <div className="conteudo">
       <div className="coluna-principal">
         <div className="cabecalho-pagina">
-          <h1>Admin</h1>
+          <div><small className="sobretitulo">Administração</small><h1>Visão geral da comunidade</h1></div>
         </div>
         <p className="texto-suave" style={{ fontSize: 14 }}>
           Edite ou apague contas aqui. Para apagar postagens, comentários ou curtidas, use a lixeira onde eles aparecem
           (no feed, no perfil ou na tela de comentários).
         </p>
 
+        {lista && <section className="impacto-grade" aria-label="Resumo das contas listadas">
+          <div><Icone nome="users" /><strong>{fmt(lista.length)}</strong><small>Contas listadas</small></div>
+          <div><Icone nome="leaf" /><strong>{fmt(lista.reduce((total, u) => total + Number(u.postagens || 0), 0))}</strong><small>Postagens dessas contas</small></div>
+        </section>}
         <form className="busca-topo" style={{ flex: 'none', height: 52, background: 'var(--superficie)' }}
           onSubmit={(e) => { e.preventDefault(); setParams(texto.trim() ? { q: texto.trim() } : {}); }} role="search">
           <Icone nome="search" tamanho={20} />

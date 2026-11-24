@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useAoVivo } from '../aoVivo.js';
 import Avatar from '../components/Avatar.jsx';
 import Icone from '../components/Icone.jsx';
 import Postagem from '../components/Postagem.jsx';
-import { CardPrimeiroDesafio, CardRanking, CardSaldo } from '../components/Laterais.jsx';
+import { CardImpacto, CardPrimeiroDesafio, CardRanking, CardSaldo } from '../components/Laterais.jsx';
 
 export default function Home() {
   const { usuario } = useAuth();
@@ -49,11 +49,16 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  const agora = new Date();
+  const hora = agora.getHours();
+  const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
+
   return (
-    <div className="conteudo">
+    <div className="conteudo feed">
       <div className="coluna-principal">
         <div className="cabecalho-pagina">
-          <h1>Feed</h1>
+          <div><small className="sobretitulo">{agora.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}</small><h1>{saudacao}, <em>{usuario.nome.trim().split(/\s+/)[0]}</em></h1><p className="texto-suave">Veja o que a sua comunidade fez hoje e registre a sua ação.</p></div>
+          <div className="saldo-movel"><CardSaldo /></div>
           <div className="chips">
             <button className="chip" aria-pressed={filtro === 'seguindo'} onClick={() => setFiltro('seguindo')}>Seguindo</button>
             <button className="chip" aria-pressed={filtro === 'alta'} onClick={() => setFiltro('alta')}>Em alta</button>
@@ -67,6 +72,7 @@ export default function Home() {
           <button className="btn btn-primario" onClick={abrirRegistro}>REGISTRAR</button>
         </div>
 
+        <Link className="desafios-movel" to="/desafios"><Icone nome="award" tamanho={16} /> Ver desafios</Link>
         {qtdNovas > 0 && (
           <button type="button" className="novas-postagens" onClick={mostrarNovas}>
             <Icone nome="seta-cima" tamanho={16} />
@@ -84,6 +90,7 @@ export default function Home() {
 
       <aside className="coluna-lateral">
         <CardSaldo />
+        <CardImpacto />
         <CardPrimeiroDesafio />
         <CardRanking />
       </aside>

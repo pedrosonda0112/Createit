@@ -7,7 +7,15 @@ import usuariosRoutes from './routes/usuarios.js';
 import geralRoutes from './routes/geral.js';
 import adminRoutes from './routes/admin.js';
 
+import { pastaFotos } from './storage.js';
+
 const app = express();
+if (pastaFotos) {
+  app.use('/api/fotos', express.static(pastaFotos, {
+    index: false, immutable: true, maxAge: '1y',
+    setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff'),
+  }), (_req, res) => res.sendStatus(404));
+}
 app.use(cors());
 app.use(express.json());
 

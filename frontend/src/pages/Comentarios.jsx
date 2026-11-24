@@ -106,7 +106,7 @@ export default function Comentarios() {
   }
 
   return (
-    <div className="conteudo">
+    <div className="conteudo comentarios-pagina">
       <div className="coluna-principal">
         <div className="cabecalho-pagina" style={{ justifyContent: 'flex-start', gap: 8 }}>
           <button className="icone-btn" onClick={voltar} aria-label="Voltar"><Icone nome="voltar" tamanho={22} /></button>

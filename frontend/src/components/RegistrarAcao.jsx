@@ -73,7 +73,7 @@ export default function RegistrarAcao({ aoFechar, aoPublicar }) {
     <div className="modal-fundo" onMouseDown={(e) => e.target === e.currentTarget && aoFechar()}>
       <form className="card modal" onSubmit={publicar} role="dialog" aria-modal="true" aria-labelledby="titulo-registrar">
         <div className="modal-topo">
-          <h2 id="titulo-registrar">Registrar ação</h2>
+          <div><h2 id="titulo-registrar">Registrar ação</h2><p className="texto-suave">Conte o que você fez e ganhe pontos.</p></div>
           <button type="button" className="icone-btn" onClick={aoFechar} aria-label="Fechar"><Icone nome="x" /></button>
         </div>
 
@@ -90,7 +90,7 @@ export default function RegistrarAcao({ aoFechar, aoPublicar }) {
         </div>
 
         <label className="campo">
-          O que você fez?
+          <span className="linha-entre">O que você fez?<small>{conteudo.length}/500</small></span>
           <textarea value={conteudo} onChange={(e) => setConteudo(e.target.value)} required maxLength={500}
             placeholder="Ex.: levei 3 kg de recicláveis ao ponto de coleta" />
         </label>
@@ -126,9 +126,10 @@ export default function RegistrarAcao({ aoFechar, aoPublicar }) {
         </div>
 
         {erro && <p className="erro" role="alert">{erro}</p>}
+        <div className="modal-botoes"><button type="button" className="btn btn-secundario" onClick={aoFechar}>Cancelar</button>
         <button className="btn btn-primario btn-bloco" disabled={enviando || preparandoFoto || !conteudo.trim()}>
           {enviando ? (foto ? 'Enviando foto…' : 'Publicando…') : 'PUBLICAR AÇÃO'}
-        </button>
+        </button></div>
       </form>
     </div>
   );
